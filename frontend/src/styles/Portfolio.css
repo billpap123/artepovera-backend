@@ -1,0 +1,77 @@
+/* Portfolio Page Reset */
+.portfolio-page {
+    padding-top: 80px; /* Ensure content starts below the fixed navbar */
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+}
+
+.portfolio-container {
+    max-width: 1200px;
+    width: 100%;
+    padding: 20px;
+    background-color: #fff;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    text-align: center;
+}
+
+.portfolio-container h2 {
+    margin-bottom: 20px;
+    color: #343a40;
+    font-size: 2rem;
+}
+
+/* Portfolio Grid Layout */
+.portfolio-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 20px;
+    justify-content: center;
+}
+
+.portfolio-item {
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    overflow: hidden;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    text-align: center;
+}
+
+.portfolio-item:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+}
+
+.portfolio-image {
+    width: 100%;
+    height: 200px;
+    object-fit: cover;
+    border-bottom: 1px solid #ddd;
+}
+
+.portfolio-item p {
+    padding: 10px 15px;
+    font-size: 0.9rem;
+    color: #555;
+}
+
+/* Loading and Error Messages */
+.loading-message,
+.error-message {
+    text-align: center;
+    color: #d9534f;
+    margin-top: 20px;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+    .portfolio-container {
+        padding: 10px;
+    }
+
+    .portfolio-item p {
+        font-size: 0.8rem;
+    }
+}

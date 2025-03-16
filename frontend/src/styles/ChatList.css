@@ -1,0 +1,87 @@
+/* Outer container for the entire ChatList component */
+.chat-list-container {
+    max-width: 600px;       /* limit how wide the list can get */
+    margin: 20px auto;      /* center horizontally */
+    background-color: #fff; 
+    border: 1px solid #ddd; 
+    border-radius: 8px; 
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    padding: 20px;
+    font-family: sans-serif;
+  }
+  
+  /* Chat list heading or "No chats yet" text can go in here if needed */
+  .chat-list-heading {
+    margin-top: 0;
+    margin-bottom: 16px;
+    font-size: 1.2rem;
+    color: #333;
+  }
+  
+  /* The UL that holds the chat list items */
+  .chat-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  
+  /* Each chat list item */
+  .chat-list li {
+    background-color: #f9f9f9;
+    border: 1px solid #eee;
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 10px;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+  }
+  
+  /* Hover effect for the chat item */
+  .chat-list li:hover {
+    background-color: #f1f1f1;
+  }
+  
+  /* "Chat with XXX" text */
+  .chat-list li span {
+    font-weight: bold;
+    color: #333;
+  }
+  
+  /* If you want to highlight the currently selected chat, you could do:
+  .chat-list li.active {
+    background-color: #e0e0e0;
+  }
+  */
+  
+  /* The container for the chat window view */
+  .chat-window-container {
+    max-width: 600px;        /* same width as the list container for consistency */
+    margin: 20px auto;
+    background-color: #fff;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    padding: 20px;
+  }
+  
+  /* Back to Chats button */
+  .chat-window-container .back-button {
+    background: #007bff;
+    color: #fff;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    margin-bottom: 16px;
+    transition: background-color 0.2s ease;
+  }
+  .chat-window-container .back-button:hover {
+    background: #0056b3;
+  }
+  
+  /* If your ChatWindow itself has its own styling, you can keep it separate,
+     but here's a snippet for the chat messages, etc. 
+     e.g. .chat-window .messages { ... }
+  */
+  
