@@ -1,6 +1,6 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import "../styles/LandingPage.css"; // ✅ Fixed double slash issue
+import "./styles/LandingPage.css"; // ✅ Fixed double slash issue
 
 interface Highlight {
   id: number;
