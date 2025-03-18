@@ -1,16 +1,26 @@
 import { Sequelize } from 'sequelize';
 
-// We pull in environment variables for production, but default to local values for development.
-const sequelize = new Sequelize(
-  process.env.DB_NAME || 'artepovera',        // DB name
-  process.env.DB_USERNAME || 'root',          // DB user
-  process.env.DB_PASSWORD || '',              // DB password
-  {
-    host: process.env.DB_HOST || '127.0.0.1', // DB host
+let sequelize: Sequelize;
+
+// 1) If `DATABASE_URL` exists, we use that (Railway or any other host).
+if (process.env.DATABASE_URL) {
+  sequelize = new Sequelize(process.env.DATABASE_URL, {
     dialect: 'mysql',
-    port: process.env.DB_PORT ? Number(process.env.DB_PORT) : 3306,  // Keep it on 3306
-    logging: console.log, // Enable SQL query logging
-  }
-);
+    logging: console.log,
+  });
+} else {
+  // 2) Otherwise, fall back to local environment vars (dev).
+  sequelize = new Sequelize(
+    process.env.DB_NAME || 'artepovera',
+    process.env.DB_USERNAME || 'root',
+    process.env.DB_PASSWORD || '',
+    {
+      host: process.env.DB_HOST || '127.0.0.1',
+      dialect: 'mysql',
+      port: process.env.DB_PORT ? Number(process.env.DB_PORT) : 3306,
+      logging: console.log,
+    }
+  );
+}
 
 export default sequelize;

@@ -8,9 +8,10 @@ import path from 'path';
 import fs from 'fs';
 import helmet from 'helmet';
 
+// Load environment variables from .env
 dotenv.config();
 
-// Import models and associations
+// Import models and associations (Sequelize relationships)
 import './models/associations';
 
 const app = express();
@@ -21,11 +22,12 @@ if (!fs.existsSync(uploadDirectory)) {
   fs.mkdirSync(uploadDirectory, { recursive: true });
 }
 
+// Sync database models (only once)
 sequelize.sync({ alter: true })
   .then(() => console.log('Database & tables synced successfully!'))
   .catch((error) => console.error('Error syncing database:', error.message));
 
-// Helmet configuration
+// Helmet configuration for security headers
 app.use(
   helmet({
     crossOriginEmbedderPolicy: false,
@@ -33,20 +35,22 @@ app.use(
   })
 );
 
-// Serve static files correctly
+// Serve static files (profile pictures, etc.) from /uploads
 app.use('/uploads', express.static(uploadDirectory));
 
-// CORS middleware
+// Read allowed origin from environment or fallback to localhost:3000
+const corsOrigin = process.env.FRONTEND_URL || 'http://localhost:3000';
 app.use(cors({
-  origin: 'http://localhost:3000',
+  origin: corsOrigin,
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   credentials: true,
 }));
 
-// Multer storage configuration
+// Multer storage config
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, path.join(__dirname, '../uploads')); // Make sure it’s just '../uploads' and not 'uploads/uploads'
+    // Use the same ../uploads directory
+    cb(null, path.join(__dirname, '../uploads'));
   },
   filename: (req, file, cb) => {
     const uniqueName = Date.now() + path.extname(file.originalname);
@@ -54,7 +58,7 @@ const storage = multer.diskStorage({
   },
 });
 
-// File filter to accept only PNG and JPEG images
+// Accept only PNG/JPEG images
 const fileFilter = (req: any, file: any, cb: FileFilterCallback) => {
   if (file.mimetype === 'image/png' || file.mimetype === 'image/jpeg') {
     cb(null, true);
@@ -65,12 +69,12 @@ const fileFilter = (req: any, file: any, cb: FileFilterCallback) => {
 
 // Initialize multer
 const upload = multer({
-  storage: storage,
-  fileFilter: fileFilter,
+  storage,
+  fileFilter,
   limits: { fileSize: 5 * 1024 * 1024 },
 });
 
-// Middleware to parse JSON and URL-encoded request bodies
+// Parse JSON and URL-encoded request bodies
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -82,25 +86,17 @@ app.use('/uploads', (req, res, next) => {
   next();
 });
 
-// Use the routes for API calls
+// Use your main API routes
 app.use('/api', routes);
 
-// Error handling middleware
-app.use((err, req, res, next) => {
+// Global error handling middleware
+app.use((err: any, req: any, res: any, next: any) => {
   console.error(err.stack);
   res.status(500).json({ error: 'Internal Server Error' });
 });
 
-// Sync all database models and start the server
-sequelize.sync({ alter: true })
-  .then(() => {
-    console.log('Database & tables synced successfully!');
-  })
-  .catch((error) => {
-    console.error('Error syncing database:', error.message);
-  });
-
-const PORT = process.env.PORT || 50001;
+// Read PORT from environment or default to 5001
+const PORT = process.env.PORT || 5001;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
