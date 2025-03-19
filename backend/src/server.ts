@@ -50,9 +50,10 @@ app.use('/uploads', express.static(uploadDirectory));
 // --------------------------------------
 // CORS CONFIGURATION
 // --------------------------------------
-// If you have multiple frontends (local dev + Vercel), list them here:
+// Put **every** frontend domain here. For example:
 const allowedOrigins = [
   'http://localhost:3000',
+  'https://artepovera2.vercel.app',
   'https://artepovera2-dyloo5rwa-vasilis-projects-01b75e68.vercel.app',
 ];
 
@@ -63,7 +64,7 @@ app.use(
       // Allow requests with no origin (e.g., mobile apps, curl)
       if (!origin) return callback(null, true);
 
-      if (allowedOrigins.indexOf(origin) !== -1) {
+      if (allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
         // If the origin isn't in the list, block it
