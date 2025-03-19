@@ -1,3 +1,5 @@
+// src/controllers/userControllers.ts
+
 import { Request, Response, NextFunction } from 'express';
 import User from '../models/User';
 import Artist from '../models/Artist';
@@ -19,7 +21,9 @@ interface CustomRequest<T = any> extends Request {
   };
 }
 
-// Toggle a like on a user
+// ─────────────────────────────────────────────────────────────
+// TOGGLE A LIKE ON A USER
+// ─────────────────────────────────────────────────────────────
 export const toggleLike = async (req: CustomRequest, res: Response): Promise<void> => {
   const loggedInUserId = req.user?.id;
   const likedUserId = parseInt(req.params.userId, 10);
@@ -30,73 +34,146 @@ export const toggleLike = async (req: CustomRequest, res: Response): Promise<voi
   }
 
   try {
+    // 1) Check if the like already exists
     const existingLike = await Like.findOne({
       where: { user_id: loggedInUserId, liked_user_id: likedUserId },
     });
 
+    // 2) If it exists, remove it (unlike)
     if (existingLike) {
       await existingLike.destroy();
-      res.json({ message: 'Like removed' });
-    } else {
-      await Like.create({ user_id: loggedInUserId, liked_user_id: likedUserId });
+      return void res.json({ message: 'Like removed' });
+    }
 
-      const loggedInUser = await User.findByPk(loggedInUserId, { attributes: ['fullname'] });
-      const likedUser = await User.findByPk(likedUserId, { attributes: ['fullname'] });
+    // 3) Otherwise, create the like
+    await Like.create({ user_id: loggedInUserId, liked_user_id: likedUserId });
 
-      // Notify the liked user
-      await Notification.create({
-        user_id: likedUserId,
-        message: `${loggedInUser?.fullname || 'Unknown User'} liked you.`,
-        sender_id: loggedInUserId,
+    // 4) Notify the liked user
+    const loggedInUser = await User.findByPk(loggedInUserId, { attributes: ['fullname'] });
+    const likedUser = await User.findByPk(likedUserId, { attributes: ['fullname'] });
+
+    await Notification.create({
+      user_id: likedUserId,
+      message: `${loggedInUser?.fullname || 'Unknown User'} liked you.`,
+      sender_id: loggedInUserId,
+    });
+
+    // 5) Check if there is a mutual like
+    const mutualLike = await Like.findOne({
+      where: { user_id: likedUserId, liked_user_id: loggedInUserId },
+    });
+
+    if (!mutualLike) {
+      // No mutual like => we’re done
+      return void res.json({ message: 'Like added' });
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // MUTUAL LIKE => CREATE (OR FIND) A CHAT
+    // ─────────────────────────────────────────────────────────
+    // Instead of using user IDs directly, figure out who is the Artist & who is the Employer
+    const [loggedUserRow, otherUserRow] = await Promise.all([
+      User.findByPk(loggedInUserId),
+      User.findByPk(likedUserId),
+    ]);
+
+    if (!loggedUserRow || !otherUserRow) {
+      // Edge case: one of them doesn't exist (?)
+      return void res.json({ message: 'Mutual like, but user(s) not found.' });
+    }
+
+    // Get the relevant Artist/Employer IDs
+    let loggedArtistId: number | null = null;
+    let loggedEmployerId: number | null = null;
+
+    if (loggedUserRow.user_type === 'Artist') {
+      const artistRow = await Artist.findOne({ where: { user_id: loggedInUserId } });
+      if (artistRow) loggedArtistId = artistRow.artist_id;
+    } else if (loggedUserRow.user_type === 'Employer') {
+      const empRow = await Employer.findOne({ where: { user_id: loggedInUserId } });
+      if (empRow) loggedEmployerId = empRow.employer_id;
+    }
+
+    let otherArtistId: number | null = null;
+    let otherEmployerId: number | null = null;
+
+    if (otherUserRow.user_type === 'Artist') {
+      const artistRow = await Artist.findOne({ where: { user_id: likedUserId } });
+      if (artistRow) otherArtistId = artistRow.artist_id;
+    } else if (otherUserRow.user_type === 'Employer') {
+      const empRow = await Employer.findOne({ where: { user_id: likedUserId } });
+      if (empRow) otherEmployerId = empRow.employer_id;
+    }
+
+    // Decide how to create the Chat record. We only create a chat
+    // if exactly one is an Artist and the other is an Employer:
+    let chat = null;
+
+    // If loggedInUser is the Artist & likedUser is the Employer
+    if (loggedArtistId && otherEmployerId) {
+      // Check if there's already a chat with these PKs
+      chat = await Chat.findOne({
+        where: {
+          [Op.or]: [
+            { artist_id: loggedArtistId, employer_id: otherEmployerId },
+            { artist_id: otherArtistId, employer_id: loggedEmployerId },
+          ],
+        },
       });
 
-      // Check for mutual like
-      const mutualLike = await Like.findOne({
-        where: { user_id: likedUserId, liked_user_id: loggedInUserId },
-      });
-
-      if (mutualLike) {
-        let chat = await Chat.findOne({
-          where: {
-            [Op.or]: [
-              { artist_id: loggedInUserId, employer_id: likedUserId },
-              { artist_id: likedUserId, employer_id: loggedInUserId },
-            ],
-          },
+      if (!chat) {
+        chat = await Chat.create({
+          artist_id: loggedArtistId,
+          employer_id: otherEmployerId,
         });
-
-        if (!chat) {
-          chat = await Chat.create({
-            artist_id: loggedInUserId,
-            employer_id: likedUserId,
-          });
-        }
-
-        // Notify both users about the mutual like
-        await Notification.create({
-          user_id: loggedInUserId,
-          message: `You and ${likedUser?.fullname || 'Unknown User'} have a mutual like!`,
-          sender_id: likedUserId,
-        });
-
-        await Notification.create({
-          user_id: likedUserId,
-          message: `You and ${loggedInUser?.fullname || 'Unknown User'} have a mutual like!`,
-          sender_id: loggedInUserId,
-        });
-
-        res.json({ message: 'Mutual like! Chat created.', chat });
-      } else {
-        res.json({ message: 'Like added' });
       }
     }
+    // If loggedInUser is the Employer & likedUser is the Artist
+    else if (loggedEmployerId && otherArtistId) {
+      chat = await Chat.findOne({
+        where: {
+          [Op.or]: [
+            { artist_id: otherArtistId, employer_id: loggedEmployerId },
+            { artist_id: loggedArtistId, employer_id: otherEmployerId },
+          ],
+        },
+      });
+
+      if (!chat) {
+        chat = await Chat.create({
+          artist_id: otherArtistId,
+          employer_id: loggedEmployerId,
+        });
+      }
+    }
+
+    // 6) Notify both about the mutual like
+    await Notification.create({
+      user_id: loggedInUserId,
+      message: `You and ${likedUser?.fullname || 'Unknown User'} have a mutual like!`,
+      sender_id: likedUserId,
+    });
+
+    await Notification.create({
+      user_id: likedUserId,
+      message: `You and ${loggedInUser?.fullname || 'Unknown User'} have a mutual like!`,
+      sender_id: loggedInUserId,
+    });
+
+    // 7) Return a success message
+    res.json({
+      message: 'Mutual like! Chat created (if you are Artist & Employer).',
+      chat,
+    });
   } catch (error) {
     console.error('Error toggling like:', error);
     res.status(500).json({ error: 'Failed to toggle like' });
   }
 };
 
-// Check if the current user liked a specific user
+// ─────────────────────────────────────────────────────────────
+// CHECK IF THE CURRENT USER LIKED A SPECIFIC USER
+// ─────────────────────────────────────────────────────────────
 export const checkLike = async (req: CustomRequest, res: Response): Promise<void> => {
   const loggedInUserId = req.user?.id;
   const likedUserId = req.params.userId;
@@ -117,7 +194,9 @@ export const checkLike = async (req: CustomRequest, res: Response): Promise<void
   }
 };
 
-// Get the currently logged-in user's data
+// ─────────────────────────────────────────────────────────────
+// GET THE CURRENTLY LOGGED‐IN USER’S DATA
+// ─────────────────────────────────────────────────────────────
 export const getCurrentUser = async (req: CustomRequest, res: Response) => {
   try {
     console.log('🔹 Decoded user from token:', req.user);
@@ -139,9 +218,7 @@ export const getCurrentUser = async (req: CustomRequest, res: Response) => {
       return;
     }
 
-    // Use an environment variable for the base URL in production
     const baseURL = process.env.BASE_URL || 'http://localhost:50001';
-
     const formatProfilePicture = (pic: string | null) =>
       pic ? `${baseURL}/${pic.replace(/^uploads\/uploads\//, 'uploads/')}` : null;
 
@@ -167,15 +244,16 @@ export const getCurrentUser = async (req: CustomRequest, res: Response) => {
     });
   } catch (error) {
     console.error('❌ Error in getCurrentUser:', error);
-    res.status(500).json({ message: 'Internal server error', error: error.message });
+    res.status(500).json({ message: 'Internal server error', error: (error as Error).message });
   }
 };
 
-// Get a specific user's profile by user ID
+// ─────────────────────────────────────────────────────────────
+// GET A SPECIFIC USER’S PROFILE BY USER ID
+// ─────────────────────────────────────────────────────────────
 export const getUserProfile = async (req: Request, res: Response): Promise<void> => {
   try {
     const { userId } = req.params;
-
     if (!userId) {
       res.status(400).json({ error: "User ID is required" });
       return;
@@ -188,7 +266,7 @@ export const getUserProfile = async (req: Request, res: Response): Promise<void>
       include: [
         {
           model: Artist,
-          as: 'artistProfile', // Must match your association name
+          as: 'artistProfile',
           attributes: ['artist_id', 'bio', 'profile_picture'],
         },
         {
@@ -233,7 +311,9 @@ export const getUserProfile = async (req: Request, res: Response): Promise<void>
   }
 };
 
-// Get all users' names (for some listing purpose)
+// ─────────────────────────────────────────────────────────────
+// GET ALL USERS’ NAMES
+// ─────────────────────────────────────────────────────────────
 export const getUserNames = async (req: Request, res: Response): Promise<void> => {
   try {
     const users = await User.findAll({ attributes: ["user_id", "fullname"] });
@@ -244,7 +324,9 @@ export const getUserNames = async (req: Request, res: Response): Promise<void> =
   }
 };
 
-// Log in a user
+// ─────────────────────────────────────────────────────────────
+// LOG IN A USER
+// ─────────────────────────────────────────────────────────────
 export const loginUser = async (
   req: CustomRequest,
   res: Response,
@@ -311,7 +393,9 @@ export const loginUser = async (
   }
 };
 
-// Register a new user and create a profile if user_type is Artist or Employer
+// ─────────────────────────────────────────────────────────────
+// REGISTER A NEW USER
+// ─────────────────────────────────────────────────────────────
 export const createUser = async (req: Request, res: Response): Promise<void> => {
   try {
     const { username, email, password, fullname, phone_number, user_type, location } = req.body;
@@ -338,7 +422,7 @@ export const createUser = async (req: Request, res: Response): Promise<void> => 
       fullname,
       phone_number,
       user_type,
-      location: sequelize.literal(`ST_GeomFromText('POINT(${longitude} ${latitude})')`) as any, // ✅ Stores geolocation correctly
+      location: sequelize.literal(`ST_GeomFromText('POINT(${longitude} ${latitude})')`) as any,
     });
 
     const token = jwt.sign(
@@ -374,10 +458,12 @@ export const createUser = async (req: Request, res: Response): Promise<void> => 
   }
 };
 
-// Get profiles based on user type (show employers to artists and vice versa)
+// ─────────────────────────────────────────────────────────────
+// GET PROFILES BASED ON USER TYPE
+// ─────────────────────────────────────────────────────────────
 export const getProfilesByUserType = async (req: CustomRequest, res: Response): Promise<void> => {
   try {
-    const { user_type } = req.user;
+    const { user_type } = req.user!;
 
     if (user_type === 'Artist') {
       const employers = await Employer.findAll();
@@ -394,7 +480,9 @@ export const getProfilesByUserType = async (req: CustomRequest, res: Response): 
   }
 };
 
-// Update user details
+// ─────────────────────────────────────────────────────────────
+// UPDATE USER
+// ─────────────────────────────────────────────────────────────
 export const updateUser = async (req: CustomRequest, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
@@ -419,7 +507,9 @@ export const updateUser = async (req: CustomRequest, res: Response): Promise<voi
   }
 };
 
-// Delete user
+// ─────────────────────────────────────────────────────────────
+// DELETE USER
+// ─────────────────────────────────────────────────────────────
 export const deleteUser = async (req: CustomRequest, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
