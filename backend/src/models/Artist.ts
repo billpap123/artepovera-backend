@@ -1,6 +1,7 @@
+// src/models/Artist.ts
+
 import { Model, DataTypes } from 'sequelize';
 import sequelize from '../config/db';
-import User from './User';
 
 class Artist extends Model {
   public artist_id!: number;
@@ -8,6 +9,7 @@ class Artist extends Model {
   public bio!: string;
   public profile_picture!: string;
   public portfolio!: string;
+  public is_student!: boolean; // <-- NEW
 }
 
 Artist.init(
@@ -33,11 +35,21 @@ Artist.init(
       type: DataTypes.STRING,
       allowNull: true,
     },
+    // New boolean field
+    is_student: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
   },
   {
     sequelize,
     tableName: 'artists',
+    // Adjust timestamps to match your preference:
+    // - If you want createdAt/updatedAt columns, leave it true.
+    // - Otherwise, set timestamps: false.
     timestamps: true,
   }
 );
+
 export default Artist;

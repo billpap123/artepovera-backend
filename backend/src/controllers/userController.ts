@@ -21,9 +21,8 @@ interface CustomRequest<T = any> extends Request {
   };
 }
 
-// ─────────────────────────────────────────────────────────────
-// TOGGLE A LIKE ON A USER
-// ─────────────────────────────────────────────────────────────
+// src/controllers/userControllers.ts
+
 export const toggleLike = async (req: CustomRequest, res: Response): Promise<void> => {
   const loggedInUserId = req.user?.id;
   const likedUserId = parseInt(req.params.userId, 10);
@@ -49,8 +48,8 @@ export const toggleLike = async (req: CustomRequest, res: Response): Promise<voi
     await Like.create({ user_id: loggedInUserId, liked_user_id: likedUserId });
 
     // 4) Notify the liked user
-    const loggedInUser = await User.findByPk(loggedInUserId, { attributes: ['fullname'] });
-    const likedUser = await User.findByPk(likedUserId, { attributes: ['fullname'] });
+    const loggedInUser = await User.findByPk(loggedInUserId, { attributes: ['fullname', 'user_type'] });
+    const likedUser = await User.findByPk(likedUserId, { attributes: ['fullname', 'user_type'] });
 
     await Notification.create({
       user_id: likedUserId,
@@ -82,6 +81,16 @@ export const toggleLike = async (req: CustomRequest, res: Response): Promise<voi
       return void res.json({ message: 'Mutual like, but user(s) not found.' });
     }
 
+    // Log their user types for debugging
+    console.log('🔎 loggedUserRow:', {
+      user_id: loggedUserRow.user_id,
+      user_type: loggedUserRow.user_type,
+    });
+    console.log('🔎 otherUserRow:', {
+      user_id: otherUserRow.user_id,
+      user_type: otherUserRow.user_type,
+    });
+
     // Get the relevant Artist/Employer IDs
     let loggedArtistId: number | null = null;
     let loggedEmployerId: number | null = null;
@@ -105,13 +114,19 @@ export const toggleLike = async (req: CustomRequest, res: Response): Promise<voi
       if (empRow) otherEmployerId = empRow.employer_id;
     }
 
+    console.log('🔎 Resolved IDs =>', {
+      loggedArtistId,
+      loggedEmployerId,
+      otherArtistId,
+      otherEmployerId,
+    });
+
     // Decide how to create the Chat record. We only create a chat
     // if exactly one is an Artist and the other is an Employer:
     let chat = null;
 
     // If loggedInUser is the Artist & likedUser is the Employer
     if (loggedArtistId && otherEmployerId) {
-      // Check if there's already a chat with these PKs
       chat = await Chat.findOne({
         where: {
           [Op.or]: [
@@ -146,6 +161,10 @@ export const toggleLike = async (req: CustomRequest, res: Response): Promise<voi
         });
       }
     }
+    // ELSE: They are both artists or both employers => no chat
+    else {
+      console.log('❌ Both are same user_type (or missing IDs). No chat created.');
+    }
 
     // 6) Notify both about the mutual like
     await Notification.create({
@@ -162,7 +181,7 @@ export const toggleLike = async (req: CustomRequest, res: Response): Promise<voi
 
     // 7) Return a success message
     res.json({
-      message: 'Mutual like! Chat created (if you are Artist & Employer).',
+      message: 'Mutual like! (Chat created only if Artist + Employer).',
       chat,
     });
   } catch (error) {
@@ -170,6 +189,7 @@ export const toggleLike = async (req: CustomRequest, res: Response): Promise<voi
     res.status(500).json({ error: 'Failed to toggle like' });
   }
 };
+
 
 // ─────────────────────────────────────────────────────────────
 // CHECK IF THE CURRENT USER LIKED A SPECIFIC USER
@@ -208,8 +228,21 @@ export const getCurrentUser = async (req: CustomRequest, res: Response) => {
 
     const user = await User.findByPk(userId, {
       include: [
-        { model: Artist, as: 'artistProfile', attributes: ['artist_id', 'bio', 'profile_picture'], required: false },
-        { model: Employer, as: 'employerProfile', attributes: ['employer_id', 'bio', 'profile_picture'], required: false },
+        {
+          model: Artist,
+          as: 'artistProfile',
+          attributes: ['artist_id', 'bio', 'profile_picture'
+            // ADD for is_student
+            , 'is_student'
+          ],
+          required: false
+        },
+        {
+          model: Employer,
+          as: 'employerProfile',
+          attributes: ['employer_id', 'bio', 'profile_picture'],
+          required: false
+        },
       ],
     });
 
@@ -232,6 +265,8 @@ export const getCurrentUser = async (req: CustomRequest, res: Response) => {
             artist_id: user.artistProfile.artist_id,
             bio: user.artistProfile.bio,
             profile_picture: formatProfilePicture(user.artistProfile.profile_picture),
+            // ADD for is_student
+            is_student: user.artistProfile.is_student
           }
         : null,
       employer: user.employerProfile
@@ -267,7 +302,10 @@ export const getUserProfile = async (req: Request, res: Response): Promise<void>
         {
           model: Artist,
           as: 'artistProfile',
-          attributes: ['artist_id', 'bio', 'profile_picture'],
+          attributes: ['artist_id', 'bio', 'profile_picture'
+            // ADD for is_student
+            , 'is_student'
+          ],
         },
         {
           model: Employer,
@@ -295,6 +333,8 @@ export const getUserProfile = async (req: Request, res: Response): Promise<void>
             artist_id: user.artistProfile.artist_id,
             bio: user.artistProfile.bio,
             profile_picture: formatPicture(user.artistProfile.profile_picture),
+            // ADD for is_student
+            is_student: user.artistProfile.is_student
           }
         : null,
       employerProfile: user.employerProfile
@@ -432,7 +472,17 @@ export const createUser = async (req: Request, res: Response): Promise<void> => 
     );
 
     if (user_type === 'Artist') {
-      const artist = await Artist.create({ user_id: user.user_id, bio: '', profile_picture: '' });
+      // ADD for is_student
+      // If the client sends "is_student" in the request body, store it:
+      const isStudentValue = !!req.body.is_student;
+
+      const artist = await Artist.create({
+        user_id: user.user_id,
+        bio: '',
+        profile_picture: '',
+        // ADD for is_student
+        is_student: isStudentValue
+      });
       res.status(201).json({
         user_id: user.user_id,
         username: user.username,
