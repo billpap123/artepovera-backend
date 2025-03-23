@@ -21,8 +21,9 @@ interface CustomRequest<T = any> extends Request {
   };
 }
 
-// src/controllers/userControllers.ts
-
+// ─────────────────────────────────────────────────────────────
+// TOGGLE A LIKE ON A USER
+// ─────────────────────────────────────────────────────────────
 export const toggleLike = async (req: CustomRequest, res: Response): Promise<void> => {
   const loggedInUserId = req.user?.id;
   const likedUserId = parseInt(req.params.userId, 10);
@@ -190,7 +191,6 @@ export const toggleLike = async (req: CustomRequest, res: Response): Promise<voi
   }
 };
 
-
 // ─────────────────────────────────────────────────────────────
 // CHECK IF THE CURRENT USER LIKED A SPECIFIC USER
 // ─────────────────────────────────────────────────────────────
@@ -231,9 +231,12 @@ export const getCurrentUser = async (req: CustomRequest, res: Response) => {
         {
           model: Artist,
           as: 'artistProfile',
-          attributes: ['artist_id', 'bio', 'profile_picture'
+          attributes: [
+            'artist_id',
+            'bio',
+            'profile_picture',
             // ADD for is_student
-            , 'is_student'
+            'is_student'
           ],
           required: false
         },
@@ -302,9 +305,12 @@ export const getUserProfile = async (req: Request, res: Response): Promise<void>
         {
           model: Artist,
           as: 'artistProfile',
-          attributes: ['artist_id', 'bio', 'profile_picture'
+          attributes: [
+            'artist_id',
+            'bio',
+            'profile_picture',
             // ADD for is_student
-            , 'is_student'
+            'is_student'
           ],
         },
         {
@@ -472,16 +478,14 @@ export const createUser = async (req: Request, res: Response): Promise<void> => 
     );
 
     if (user_type === 'Artist') {
-      // ADD for is_student
-      // If the client sends "is_student" in the request body, store it:
+      // If the client sends "is_student" in the request body, store it in Artist:
       const isStudentValue = !!req.body.is_student;
 
       const artist = await Artist.create({
         user_id: user.user_id,
         bio: '',
         profile_picture: '',
-        // ADD for is_student
-        is_student: isStudentValue
+        is_student: isStudentValue // <-- Must exist as a column in your "artists" table/model
       });
       res.status(201).json({
         user_id: user.user_id,
