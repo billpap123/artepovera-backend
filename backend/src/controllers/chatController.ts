@@ -1,4 +1,5 @@
 // controllers/chat.controller.ts
+
 import { Request, Response, NextFunction } from 'express';
 import { Op } from 'sequelize';
 import Chat from '../models/Chat';

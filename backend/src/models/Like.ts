@@ -1,13 +1,13 @@
 import { Model, DataTypes } from 'sequelize';
-import sequelize from '../config/db'; // Import your Sequelize instance
-import User from './User'; // Import User model
+import sequelize from '../config/db'; 
+import User from './User'; 
 import Notification from './Notification';
 
 class Like extends Model {
   public like_id!: number;
-  public user_id!: number; // User who liked
-  public liked_user_id!: number; // User being liked
-  public readonly created_at!: Date; // Timestamp of the like
+  public user_id!: number;       // user who liked
+  public liked_user_id!: number; // user being liked
+  public readonly created_at!: Date;
 }
 
 Like.init(
@@ -43,13 +43,12 @@ Like.init(
   {
     sequelize,
     tableName: 'likes',
-    timestamps: false, // Disable updatedAt and createdAt
+    timestamps: false,
   }
 );
 
-Like.belongsTo(User, { as: 'liker', foreignKey: 'user_id' }); // Who gave the like
-Like.belongsTo(User, { as: 'likedUser', foreignKey: 'liked_user_id' }); // Who received the like
+Like.belongsTo(User, { as: 'liker', foreignKey: 'user_id' });
+Like.belongsTo(User, { as: 'likedUser', foreignKey: 'liked_user_id' });
 Notification.belongsTo(Like, { foreignKey: 'like_id', as: 'likeDetails' });
-
 
 export default Like;

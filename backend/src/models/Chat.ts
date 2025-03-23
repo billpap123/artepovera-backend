@@ -1,4 +1,3 @@
-// models/Chat.ts
 import { Model, DataTypes, Optional } from 'sequelize';
 import sequelize from '../config/db';
 
@@ -29,7 +28,7 @@ Chat.init(
       type: DataTypes.INTEGER,
       allowNull: false,
       references: {
-        model: 'artists',  // The table name for Artist
+        model: 'artists', // The actual table name
         key: 'artist_id',
       },
     },
@@ -37,7 +36,7 @@ Chat.init(
       type: DataTypes.INTEGER,
       allowNull: false,
       references: {
-        model: 'employers', // The table name for Employer
+        model: 'employers', // The actual table name
         key: 'employer_id',
       },
     },

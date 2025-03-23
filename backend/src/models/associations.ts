@@ -1,4 +1,3 @@
-// models/associations.ts
 import User from './User';
 import Artist from './Artist';
 import Employer from './Employer';
@@ -13,6 +12,7 @@ Artist.belongsTo(User, { foreignKey: 'user_id', as: 'artistUserDetails' });
 // 2) Employer <-> User
 User.hasOne(Employer, { foreignKey: 'user_id', as: 'employerProfile' });
 Employer.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+
 // 3) Chat <-> Artist/Employer
 Chat.belongsTo(Artist, { foreignKey: 'artist_id', as: 'chatArtist' });
 Chat.belongsTo(Employer, { foreignKey: 'employer_id', as: 'chatEmployer' });
@@ -27,15 +27,12 @@ Message.belongsTo(Chat, { foreignKey: 'chat_id', as: 'chatMessages' });
 Message.belongsTo(User, { foreignKey: 'sender_id', as: 'messageSender' });
 Message.belongsTo(User, { foreignKey: 'receiver_id', as: 'messageReceiver' });
 
-
-// Define the belongsTo relationship in ONE place:
+// JobPosting <-> Employer
 JobPosting.belongsTo(Employer, {
-    as: 'employer',
-    foreignKey: 'employer_id',
-  });
-  
-  // If you want the reverse association:
-  Employer.hasMany(JobPosting, {
-    as: 'jobPostings',
-    foreignKey: 'employer_id',
-  });
+  as: 'employer',
+  foreignKey: 'employer_id',
+});
+Employer.hasMany(JobPosting, {
+  as: 'jobPostings',
+  foreignKey: 'employer_id',
+});
