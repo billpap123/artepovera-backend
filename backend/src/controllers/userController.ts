@@ -58,133 +58,104 @@ export const toggleLike = async (req: CustomRequest, res: Response): Promise<voi
       sender_id: loggedInUserId,
     });
 
-    // 5) Check if there is a mutual like
-    const mutualLike = await Like.findOne({
-      where: { user_id: likedUserId, liked_user_id: loggedInUserId },
+  // 5) Check if there is a mutual like
+const mutualLike = await Like.findOne({
+  where: { user_id: likedUserId, liked_user_id: loggedInUserId },
+});
+
+if (!mutualLike) {
+  // No mutual like => done
+   res.json({ message: 'Like added' });
+}
+
+// ─────────────────────────────────────────────────────────
+// MUTUAL LIKE => CREATE (OR FIND) A CHAT
+// ─────────────────────────────────────────────────────────
+const [loggedUserRow, otherUserRow] = await Promise.all([
+  User.findByPk(loggedInUserId),
+  User.findByPk(likedUserId),
+]);
+
+if (!loggedUserRow || !otherUserRow) {
+   res.json({ message: 'Mutual like, but user(s) not found.' });
+}
+
+// Decide how to create the Chat row. We only do so if exactly
+// one user is an Artist and the other is an Employer.
+let chat = null;
+
+// If the loggedInUser is an Artist, and the likedUser is an Employer
+if (
+  loggedUserRow.user_type === 'Artist' &&
+  otherUserRow.user_type === 'Employer'
+) {
+  // We store the actual user IDs in the chat table
+  const artistUserId = loggedInUserId; // I'm the artist
+  const employerUserId = likedUserId;  // They are the employer
+
+  chat = await Chat.findOne({
+    where: {
+      [Op.or]: [
+        { artist_user_id: artistUserId, employer_user_id: employerUserId },
+        { artist_user_id: employerUserId, employer_user_id: artistUserId },
+      ],
+    },
+  });
+
+  if (!chat) {
+    chat = await Chat.create({
+      artist_user_id: artistUserId,
+      employer_user_id: employerUserId,
     });
+  }
+}
+// If the loggedInUser is an Employer, and the likedUser is an Artist
+else if (
+  loggedUserRow.user_type === 'Employer' &&
+  otherUserRow.user_type === 'Artist'
+) {
+  const artistUserId = likedUserId;   // The likedUser is the artist
+  const employerUserId = loggedInUserId; // I'm the employer
 
-    if (!mutualLike) {
-      // No mutual like => we’re done
-      return void res.json({ message: 'Like added' });
-    }
+  chat = await Chat.findOne({
+    where: {
+      [Op.or]: [
+        { artist_user_id: artistUserId, employer_user_id: employerUserId },
+        { artist_user_id: employerUserId, employer_user_id: artistUserId },
+      ],
+    },
+  });
 
-    // ─────────────────────────────────────────────────────────
-    // MUTUAL LIKE => CREATE (OR FIND) A CHAT
-    // ─────────────────────────────────────────────────────────
-    // Instead of using user IDs directly, figure out who is the Artist & who is the Employer
-    const [loggedUserRow, otherUserRow] = await Promise.all([
-      User.findByPk(loggedInUserId),
-      User.findByPk(likedUserId),
-    ]);
-
-    if (!loggedUserRow || !otherUserRow) {
-      // Edge case: one of them doesn't exist (?)
-      return void res.json({ message: 'Mutual like, but user(s) not found.' });
-    }
-
-    // Log their user types for debugging
-    console.log('🔎 loggedUserRow:', {
-      user_id: loggedUserRow.user_id,
-      user_type: loggedUserRow.user_type,
+  if (!chat) {
+    chat = await Chat.create({
+      artist_user_id: artistUserId,
+      employer_user_id: employerUserId,
     });
-    console.log('🔎 otherUserRow:', {
-      user_id: otherUserRow.user_id,
-      user_type: otherUserRow.user_type,
-    });
+  }
+}
+// ELSE: both are Artists or both are Employers => no chat
+else {
+  console.log('❌ Both are same user_type (or missing IDs). No chat created.');
+}
 
-    // Get the relevant Artist/Employer IDs
-    let loggedArtistId: number | null = null;
-    let loggedEmployerId: number | null = null;
+// 6) Notify both about the mutual like
+await Notification.create({
+  user_id: loggedInUserId,
+  message: `You and ${otherUserRow.fullname || 'Unknown User'} have a mutual like!`,
+  sender_id: likedUserId,
+});
 
-    if (loggedUserRow.user_type === 'Artist') {
-      const artistRow = await Artist.findOne({ where: { user_id: loggedInUserId } });
-      if (artistRow) loggedArtistId = artistRow.artist_id;
-    } else if (loggedUserRow.user_type === 'Employer') {
-      const empRow = await Employer.findOne({ where: { user_id: loggedInUserId } });
-      if (empRow) loggedEmployerId = empRow.employer_id;
-    }
+await Notification.create({
+  user_id: likedUserId,
+  message: `You and ${loggedUserRow.fullname || 'Unknown User'} have a mutual like!`,
+  sender_id: loggedInUserId,
+});
 
-    let otherArtistId: number | null = null;
-    let otherEmployerId: number | null = null;
-
-    if (otherUserRow.user_type === 'Artist') {
-      const artistRow = await Artist.findOne({ where: { user_id: likedUserId } });
-      if (artistRow) otherArtistId = artistRow.artist_id;
-    } else if (otherUserRow.user_type === 'Employer') {
-      const empRow = await Employer.findOne({ where: { user_id: likedUserId } });
-      if (empRow) otherEmployerId = empRow.employer_id;
-    }
-
-    console.log('🔎 Resolved IDs =>', {
-      loggedArtistId,
-      loggedEmployerId,
-      otherArtistId,
-      otherEmployerId,
-    });
-
-    // Decide how to create the Chat record. We only create a chat
-    // if exactly one is an Artist and the other is an Employer:
-    let chat = null;
-
-    // If loggedInUser is the Artist & likedUser is the Employer
-    if (loggedArtistId && otherEmployerId) {
-      chat = await Chat.findOne({
-        where: {
-          [Op.or]: [
-            { artist_user_id: loggedArtistId, employer_user_id: otherEmployerId },
-            { artist_user_id: otherArtistId, employer_user_id: loggedEmployerId },
-          ],
-        },
-      });
-
-      if (!chat) {
-        chat = await Chat.create({
-          artist_user_id: loggedArtistId,
-          employer_user_id: otherEmployerId,
-        });
-      }
-    }
-    // If loggedInUser is the Employer & likedUser is the Artist
-    else if (loggedEmployerId && otherArtistId) {
-      chat = await Chat.findOne({
-        where: {
-          [Op.or]: [
-            { artist_user_id: otherArtistId, employer_user_id: loggedEmployerId },
-            { artist_user_id: loggedArtistId, employer_user_id: otherEmployerId },
-          ],
-        },
-      });
-
-      if (!chat) {
-        chat = await Chat.create({
-          artist_user_id: otherArtistId,
-          employer_user_id: loggedEmployerId,
-        });
-      }
-    }
-    // ELSE: They are both artists or both employers => no chat
-    else {
-      console.log('❌ Both are same user_type (or missing IDs). No chat created.');
-    }
-
-    // 6) Notify both about the mutual like
-    await Notification.create({
-      user_id: loggedInUserId,
-      message: `You and ${likedUser?.fullname || 'Unknown User'} have a mutual like!`,
-      sender_id: likedUserId,
-    });
-
-    await Notification.create({
-      user_id: likedUserId,
-      message: `You and ${loggedInUser?.fullname || 'Unknown User'} have a mutual like!`,
-      sender_id: loggedInUserId,
-    });
-
-    // 7) Return a success message
-    res.json({
-      message: 'Mutual like! (Chat created only if Artist + Employer).',
-      chat,
-    });
+// 7) Return a success message
+res.json({
+  message: 'Mutual like! (Chat created only if Artist + Employer).',
+  chat,
+});
   } catch (error) {
     console.error('Error toggling like:', error);
     res.status(500).json({ error: 'Failed to toggle like' });
