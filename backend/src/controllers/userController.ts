@@ -131,16 +131,16 @@ export const toggleLike = async (req: CustomRequest, res: Response): Promise<voi
       chat = await Chat.findOne({
         where: {
           [Op.or]: [
-            { artist_id: loggedArtistId, employer_id: otherEmployerId },
-            { artist_id: otherArtistId, employer_id: loggedEmployerId },
+            { artist_user_id: loggedArtistId, employer_user_id: otherEmployerId },
+            { artist_user_id: otherArtistId, employer_user_id: loggedEmployerId },
           ],
         },
       });
 
       if (!chat) {
         chat = await Chat.create({
-          artist_id: loggedArtistId,
-          employer_id: otherEmployerId,
+          artist_user_id: loggedArtistId,
+          employer_user_id: otherEmployerId,
         });
       }
     }
@@ -149,16 +149,16 @@ export const toggleLike = async (req: CustomRequest, res: Response): Promise<voi
       chat = await Chat.findOne({
         where: {
           [Op.or]: [
-            { artist_id: otherArtistId, employer_id: loggedEmployerId },
-            { artist_id: loggedArtistId, employer_id: otherEmployerId },
+            { artist_user_id: otherArtistId, employer_user_id: loggedEmployerId },
+            { artist_user_id: loggedArtistId, employer_user_id: otherEmployerId },
           ],
         },
       });
 
       if (!chat) {
         chat = await Chat.create({
-          artist_id: otherArtistId,
-          employer_id: loggedEmployerId,
+          artist_user_id: otherArtistId,
+          employer_user_id: loggedEmployerId,
         });
       }
     }
