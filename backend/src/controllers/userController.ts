@@ -456,6 +456,7 @@ export const createUser = async (req: Request, res: Response): Promise<void> => 
         user_id: user.user_id,
         bio: '',
         profile_picture: '',
+        portfolio: '', // or "my default text"
         is_student: isStudentValue // <-- Must exist as a column in your "artists" table/model
       });
       res.status(201).json({
