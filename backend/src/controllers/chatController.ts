@@ -188,23 +188,47 @@ export const getChatHistory = async (req: Request, res: Response): Promise<void>
 // ─────────────────────────────────────────────────────────────
 // FETCH CHATS FOR A USER (All Chats Where This User Is Artist or Employer)
 // ─────────────────────────────────────────────────────────────
-export const fetchMessages = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-  const user_id = parseInt(req.params.user_id, 10);
+// src/controllers/chat.controller.ts
 
+export const fetchMessages = async (req: Request, res: Response): Promise<void> => {
+
+  const user_id = parseInt(req.params.user_id, 10);
   if (isNaN(user_id)) {
-    res.status(400).json({ message: 'Invalid User ID.' });
-    return;
+     res.status(400).json({ message: 'Invalid User ID.' });
   }
 
   try {
-    // 1) Find all Chats where user is either the artist or the employer
+    // 1) See if this user is an Artist or Employer (or both)
+    const [artistRow, employerRow] = await Promise.all([
+      Artist.findOne({ where: { user_id } }),
+      Employer.findOne({ where: { user_id } }),
+    ]);
+
+    // Build an array of possible conditions
+    const orConditions: any[] = [];
+
+    // If they are an Artist, we have an artist_id
+    if (artistRow) {
+      orConditions.push({ artist_id: artistRow.artist_id });
+    }
+
+    // If they are an Employer, we have an employer_id
+    if (employerRow) {
+      orConditions.push({ employer_id: employerRow.employer_id });
+    }
+
+    // If the user is neither an Artist nor Employer, no chats
+    if (orConditions.length === 0) {
+       res.status(200).json({
+        message: 'User is neither an Artist nor an Employer.',
+        chats: [],
+      });
+    }
+
+    // 2) Now find all Chats where (artist_id = X) OR (employer_id = Y)
     const chats = await Chat.findAll({
       where: {
-        [Op.or]: [{ artist_id: user_id }, { employer_id: user_id }],
+        [Op.or]: orConditions,
       },
       include: [
         {
@@ -220,21 +244,16 @@ export const fetchMessages = async (
       ],
     });
 
-    // 2) If no chats, return an empty array
     if (!chats.length) {
-      res.status(200).json({
+       res.status(200).json({
         message: 'No chats found for this user.',
         chats: [],
       });
-      return;
     }
 
-    // 3) Otherwise, return the found chats
-    res.status(200).json({ chats });
-    return;
+     res.status(200).json({ chats });
   } catch (error) {
-    console.error('Error fetching recent messages:', error);
-    res.status(500).json({ message: 'Failed to fetch recent messages.' });
-    return;
+    console.error('Error fetching chats for user:', error);
+     res.status(500).json({ message: 'Failed to fetch chats.' });
   }
 };
