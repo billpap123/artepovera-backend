@@ -43,6 +43,17 @@ app.use(
 );
 
 // --------------------------------------
+// Fix profile picture URL handling
+// --------------------------------------
+// Moved before static file serving so that any URLs with extra "/uploads" get corrected.
+app.use('/uploads', (req, res, next) => {
+  if (req.url.startsWith('/uploads/uploads/')) {
+    req.url = req.url.replace('/uploads/uploads/', '/uploads/');
+  }
+  next();
+});
+
+// --------------------------------------
 // Serve static files from /uploads
 // --------------------------------------
 app.use('/uploads', express.static(uploadDirectory));
@@ -50,20 +61,17 @@ app.use('/uploads', express.static(uploadDirectory));
 // --------------------------------------
 // CORS CONFIGURATION
 // --------------------------------------
-// Put **every** frontend domain here. For example:
 const allowedOrigins = [
   'http://localhost:3000',
   'https://artepovera2.vercel.app',
   'https://artepovera2-dyloo5rwa-vasilis-projects-01b75e68.vercel.app',
 ];
 
-// Customize the CORS middleware
 app.use(
   cors({
     origin: (origin, callback) => {
       // Allow requests with no origin (e.g., mobile apps, curl)
       if (!origin) return callback(null, true);
-
       if (allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
@@ -81,7 +89,8 @@ app.use(
 // --------------------------------------
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, path.join(__dirname, '../uploads'));
+    // Use the previously defined uploadDirectory for consistency
+    cb(null, uploadDirectory);
   },
   filename: (req, file, cb) => {
     const uniqueName = Date.now() + path.extname(file.originalname);
@@ -93,6 +102,7 @@ const fileFilter = (req: any, file: any, cb: FileFilterCallback) => {
   if (file.mimetype === 'image/png' || file.mimetype === 'image/jpeg') {
     cb(null, true);
   } else {
+    // You could also pass an error here, e.g., cb(new Error('Only PNG and JPEG files are allowed'), false);
     cb(null, false);
   }
 };
@@ -109,16 +119,6 @@ const upload = multer({
 // --------------------------------------
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-// --------------------------------------
-// Fix profile picture URL handling
-// --------------------------------------
-app.use('/uploads', (req, res, next) => {
-  if (req.url.startsWith('/uploads/uploads/')) {
-    req.url = req.url.replace('/uploads/uploads/', '/uploads/');
-  }
-  next();
-});
 
 // --------------------------------------
 // USE YOUR MAIN API ROUTES
