@@ -22,15 +22,20 @@ const storage = multer.diskStorage({
   },
 });
 
-const fileFilter = (req, file, cb) => {
-    if (file.mimetype === 'image/png' || file.mimetype === 'image/jpeg') {
-      cb(null, true);
-    } else {
-      // Force-cast the Error so TS stops complaining
-      cb(new Error('Only PNG/JPEG allowed') as unknown as null, false);
-    }
-  };
-  
+// If you want an error thrown for non-PNG/JPEG, you can cast it.
+// Otherwise you can do: cb(null, false) to “silently” reject.
+const fileFilter = (
+  req: Request,
+  file: Express.Multer.File,
+  cb: multer.FileFilterCallback
+): void => {
+  if (file.mimetype === 'image/png' || file.mimetype === 'image/jpeg') {
+    cb(null, true);
+  } else {
+    // Force-cast the Error so TS stops complaining:
+    cb(new Error('Only PNG/JPEG allowed') as unknown as null, false);
+  }
+};
 
 export const upload = multer({
   storage,
@@ -42,19 +47,21 @@ export const upload = multer({
  * POST /api/portfolios
  * Body: { image (file), description, artist_id }
  */
-export const createPortfolioItem = async (req: Request, res: Response) => {
+export const createPortfolioItem = async (req: Request, res: Response): Promise<void> => {
   try {
     const { description, artist_id } = req.body;
     const file = req.file;
 
     if (!file || !artist_id) {
-      return void res.status(400).json({ message: 'Image and artist_id are required' });
+      res.status(400).json({ message: 'Image and artist_id are required' });
+      return; // just return
     }
 
     // Confirm the artist actually exists
     const artist = await Artist.findByPk(artist_id);
     if (!artist) {
-      return void res.status(404).json({ message: 'No artist found with that artist_id' });
+      res.status(404).json({ message: 'No artist found with that artist_id' });
+      return;
     }
 
     // Save relative path
@@ -66,10 +73,12 @@ export const createPortfolioItem = async (req: Request, res: Response) => {
       description,
     });
 
-    return void res.status(201).json(newPortfolioItem);
-  } catch (error: any) {
+    res.status(201).json(newPortfolioItem);
+    return;
+  } catch (error) {
     console.error('Error creating portfolio item:', error);
-    return void res.status(500).json({ message: 'Failed to create portfolio item' });
+    res.status(500).json({ message: 'Failed to create portfolio item' });
+    return;
   }
 };
 
@@ -77,23 +86,24 @@ export const createPortfolioItem = async (req: Request, res: Response) => {
  * GET /api/portfolios/:artistId
  * Returns all portfolio items for that artist
  */
-export const getArtistPortfolio = async (req: Request, res: Response) => {
+export const getArtistPortfolio = async (req: Request, res: Response): Promise<void> => {
   try {
-    // e.g. GET /api/portfolios/:artistId
     const { artistId } = req.params;
-    // 1) Make sure artistId is the PK in the artists table
+
+    // 1) Check if that artist PK exists
     const artist = await Artist.findOne({ where: { artist_id: artistId } });
-    if (!artist) return res.status(404).json({ message: 'Artist not found' });
-    
+    if (!artist) {
+      res.status(404).json({ message: 'Artist not found' });
+      return;
+    }
+
+    // 2) Find all portfolio items
     const portfolioItems = await Portfolio.findAll({
       where: { artist_id: artist.artist_id },
       include: [{ model: Artist, as: 'artist', attributes: ['bio'] }],
     });
-    
-    // ...format and return the items...
-    
 
-    // Convert image paths to full URLs
+    // Convert relative image paths to absolute
     const baseURL = process.env.BASE_URL || 'http://localhost:50001';
     const updatedItems = portfolioItems.map((item) => {
       const json = item.toJSON() as any;
@@ -103,10 +113,12 @@ export const getArtistPortfolio = async (req: Request, res: Response) => {
       };
     });
 
-    return void res.status(200).json(updatedItems);
-  } catch (error: any) {
+    res.status(200).json(updatedItems);
+    return;
+  } catch (error) {
     console.error('Error retrieving portfolio items:', error);
-    return void res.status(500).json({ message: 'Failed to retrieve portfolio items' });
+    res.status(500).json({ message: 'Failed to retrieve portfolio items' });
+    return;
   }
 };
 
@@ -114,7 +126,7 @@ export const getArtistPortfolio = async (req: Request, res: Response) => {
  * PUT /api/portfolios/:id
  * Body: { description? } + optional file "image"
  */
-export const updatePortfolioItem = async (req: Request, res: Response) => {
+export const updatePortfolioItem = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
     const { description } = req.body;
@@ -122,7 +134,8 @@ export const updatePortfolioItem = async (req: Request, res: Response) => {
 
     const portfolioItem = await Portfolio.findByPk(id);
     if (!portfolioItem) {
-      return void res.status(404).json({ message: 'Portfolio item not found' });
+      res.status(404).json({ message: 'Portfolio item not found' });
+      return;
     }
 
     if (file) {
@@ -133,28 +146,34 @@ export const updatePortfolioItem = async (req: Request, res: Response) => {
     }
 
     await portfolioItem.save();
-    return void res.status(200).json(portfolioItem);
-  } catch (error: any) {
+    res.status(200).json(portfolioItem);
+    return;
+  } catch (error) {
     console.error('Error updating portfolio item:', error);
-    return void res.status(500).json({ message: 'Failed to update portfolio item' });
+    res.status(500).json({ message: 'Failed to update portfolio item' });
+    return;
   }
 };
 
 /**
  * DELETE /api/portfolios/:id
  */
-export const deletePortfolioItem = async (req: Request, res: Response) => {
+export const deletePortfolioItem = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
     const portfolioItem = await Portfolio.findByPk(id);
+
     if (!portfolioItem) {
-      return void res.status(404).json({ message: 'Portfolio item not found' });
+      res.status(404).json({ message: 'Portfolio item not found' });
+      return;
     }
 
     await portfolioItem.destroy();
-    return void res.status(204).send();
-  } catch (error: any) {
+    res.status(204).send();
+    return;
+  } catch (error) {
     console.error('Error deleting portfolio item:', error);
-    return void res.status(500).json({ message: 'Failed to delete portfolio item' });
+    res.status(500).json({ message: 'Failed to delete portfolio item' });
+    return;
   }
 };
