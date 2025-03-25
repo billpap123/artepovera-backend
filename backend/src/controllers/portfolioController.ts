@@ -79,18 +79,19 @@ export const createPortfolioItem = async (req: Request, res: Response) => {
  */
 export const getArtistPortfolio = async (req: Request, res: Response) => {
   try {
+    // e.g. GET /api/portfolios/:artistId
     const { artistId } = req.params;
-
-    // If you store "artist_id" as PK in the artists table:
+    // 1) Make sure artistId is the PK in the artists table
     const artist = await Artist.findOne({ where: { artist_id: artistId } });
-    if (!artist) {
-      return void res.status(404).json({ message: 'Artist not found' });
-    }
-
+    if (!artist) return res.status(404).json({ message: 'Artist not found' });
+    
     const portfolioItems = await Portfolio.findAll({
       where: { artist_id: artist.artist_id },
       include: [{ model: Artist, as: 'artist', attributes: ['bio'] }],
     });
+    
+    // ...format and return the items...
+    
 
     // Convert image paths to full URLs
     const baseURL = process.env.BASE_URL || 'http://localhost:50001';

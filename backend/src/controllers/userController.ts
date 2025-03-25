@@ -450,7 +450,7 @@ export const createUser = async (req: Request, res: Response): Promise<void> => 
 
     if (user_type === 'Artist') {
       // If the client sends "is_student" in the request body, store it in Artist:
-      const isStudentValue = !!req.body.is_student;
+      const isStudentValue = !!(req.body.isStudent);
 
       const artist = await Artist.create({
         user_id: user.user_id,
