@@ -32,14 +32,21 @@ const fileFilter = (req: Request, file: Express.Multer.File, cb: multer.FileFilt
     }
 };
 
-export const upload = multer({ storage, fileFilter, limits: { fileSize: 5 * 1024 * 1024 } });
+export const upload = multer({
+    storage,
+    fileFilter,
+    limits: { fileSize: 5 * 1024 * 1024 },
+});
 
-// **Portfolio Upload: Save Correct Image Path**
+// ─────────────────────────────────────────────────────────────
+// CREATE A NEW PORTFOLIO ITEM
+// ─────────────────────────────────────────────────────────────
 export const createPortfolioItem = async (req: Request, res: Response): Promise<void> => {
     try {
         const { description, artist_id } = req.body;
         const file = req.file;
 
+        // Must have file + valid artist_id
         if (!file || !artist_id) {
             res.status(400).json({ message: 'Image and artist_id are required' });
             return;
@@ -48,8 +55,9 @@ export const createPortfolioItem = async (req: Request, res: Response): Promise<
         // Save relative path for database storage
         const imagePath = `uploads/${file.filename}`;
 
+        // Insert into the "artist_portfolios" table
         const portfolioItem = await Portfolio.create({
-            artist_id,
+            artist_id,  // Must match an existing "artist_id" in the "artists" table
             image_url: imagePath,
             description,
         });
@@ -61,29 +69,31 @@ export const createPortfolioItem = async (req: Request, res: Response): Promise<
     }
 };
 
-// **Portfolio Retrieval: Ensure Correct URL for Images**
-export const getArtistPortfolio = async (req: Request, res: Response) => {
+// ─────────────────────────────────────────────────────────────
+// GET ALL PORTFOLIO ITEMS FOR A GIVEN ARTIST
+// ─────────────────────────────────────────────────────────────
+export const getArtistPortfolio = async (req: Request, res: Response): Promise<void> => {
     try {
+        // We assume ":artistId" is actually the "artist_id" from the artists table
         const { artistId } = req.params;
 
-        const artist = await Artist.findOne({ where: { user_id: artistId } });
+        // 1) Find the Artist row by artist_id
+        const artist = await Artist.findOne({ where: { artist_id: artistId } });
         if (!artist) {
-            res.status(404).json({ message: 'Artist not found' });
-            return;
+             res.status(404).json({ message: 'Artist not found' });
         }
 
+        // 2) Fetch all portfolio items for that artist_id
         const portfolioItems = await Portfolio.findAll({
             where: { artist_id: artist.artist_id },
-            include: [{ model: Artist, as: 'artist', attributes: ['bio'] }]
+            include: [{ model: Artist, as: 'artist', attributes: ['bio'] }],
         });
 
-        // Base URL from environment or fallback
+        // 3) Convert the local image path to a full URL
         const baseURL = process.env.BASE_URL || 'http://localhost:50001';
-
-        // Convert image paths to full URLs
         const updatedPortfolioItems = portfolioItems.map((item) => ({
             ...item.toJSON(),
-            image_url: `${baseURL}/${item.image_url}`
+            image_url: `${baseURL}/${item.image_url}`,
         }));
 
         res.status(200).json(updatedPortfolioItems);
@@ -93,7 +103,9 @@ export const getArtistPortfolio = async (req: Request, res: Response) => {
     }
 };
 
-// **Update Portfolio Item**
+// ─────────────────────────────────────────────────────────────
+// UPDATE A PORTFOLIO ITEM
+// ─────────────────────────────────────────────────────────────
 export const updatePortfolioItem = async (req: Request, res: Response): Promise<void> => {
     try {
         const { id } = req.params;
@@ -106,13 +118,17 @@ export const updatePortfolioItem = async (req: Request, res: Response): Promise<
             return;
         }
 
+        // If a new file was uploaded, update the image path
         if (file) {
             portfolioItem.image_url = `uploads/${file.filename}`;
         }
-        portfolioItem.description = description || portfolioItem.description;
+
+        // Update description if provided
+        if (description) {
+            portfolioItem.description = description;
+        }
 
         await portfolioItem.save();
-
         res.status(200).json(portfolioItem);
     } catch (error) {
         console.error('Error updating portfolio item:', error);
@@ -120,7 +136,9 @@ export const updatePortfolioItem = async (req: Request, res: Response): Promise<
     }
 };
 
-// **Delete Portfolio Item**
+// ─────────────────────────────────────────────────────────────
+// DELETE A PORTFOLIO ITEM
+// ─────────────────────────────────────────────────────────────
 export const deletePortfolioItem = async (req: Request, res: Response): Promise<void> => {
     try {
         const { id } = req.params;
