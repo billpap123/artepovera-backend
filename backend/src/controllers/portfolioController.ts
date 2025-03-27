@@ -1,3 +1,4 @@
+// src/controllers/portfolioController.ts
 import { Request, Response } from 'express';
 import Portfolio from '../models/Portfolio';
 import Artist from '../models/Artist';
@@ -40,19 +41,18 @@ export const upload = multer({
 });
 
 // ─────────────────────────────────────────────────────────────
-// CREATE A NEW PORTFOLIO ITEM (for the currently logged-in user)
+// CREATE A NEW PORTFOLIO ITEM (for the currently logged-in artist)
 // ─────────────────────────────────────────────────────────────
 export const createPortfolioItem = async (req: CustomRequest, res: Response): Promise<void> => {
   try {
     const { description } = req.body;
     const file = req.file;
-
     if (!file) {
       res.status(400).json({ message: 'Image is required' });
       return;
     }
 
-    // Use the authenticated user's id (from auth middleware)
+    // Get the authenticated user's id from the token
     const userId = req.user?.id;
     if (!userId) {
       res.status(401).json({ message: 'Unauthorized: User not found in token' });
@@ -76,8 +76,7 @@ export const createPortfolioItem = async (req: CustomRequest, res: Response): Pr
       description,
     });
     console.log('File path:', file.path);
-console.log('File stored in DB as:', imagePath);
-
+    console.log('File stored in DB as:', imagePath);
 
     res.status(201).json(portfolioItem);
     return;
@@ -95,7 +94,6 @@ console.log('File stored in DB as:', imagePath);
 export const getArtistPortfolio = async (req: Request, res: Response): Promise<void> => {
   try {
     console.log('🔹 The artistId param is:', req.params.artistId);
-
     const { artistId } = req.params;
 
     // Query the Portfolio table for items that match this artistId
@@ -114,7 +112,6 @@ export const getArtistPortfolio = async (req: Request, res: Response): Promise<v
     const baseURL = process.env.BASE_URL || 'http://localhost:50001';
     const updatedPortfolioItems = portfolioItems.map((item) => {
       const itemData = item.toJSON();
-      // Remove any leading slashes from the stored image URL
       const cleanImageUrl = (itemData.image_url as string).replace(/^\/+/, '');
       return {
         ...itemData,
@@ -143,26 +140,24 @@ export const getMyPortfolio = async (req: CustomRequest, res: Response): Promise
       return;
     }
 
-    // Find the artist record by user_id
+    // Find the artist record by the authenticated user's id
     const artist = await Artist.findOne({ where: { user_id: userId } });
     if (!artist) {
       res.status(404).json({ message: 'Artist profile not found. Please create your artist profile first.' });
       return;
     }
 
-    // Now fetch the portfolio items for that artist
+    // Fetch the portfolio items for that artist
     const portfolioItems = await Portfolio.findAll({
       where: { artist_id: artist.artist_id },
       include: [{ model: Artist, as: 'artist', attributes: ['bio'] }],
     });
 
-    // If no items exist, return an empty array
     if (!portfolioItems || portfolioItems.length === 0) {
       res.status(200).json([]);
       return;
     }
 
-    // Construct full URL for each image
     const baseURL = process.env.BASE_URL || 'http://localhost:50001';
     const updatedPortfolioItems = portfolioItems.map((item) => {
       const itemData = item.toJSON();
