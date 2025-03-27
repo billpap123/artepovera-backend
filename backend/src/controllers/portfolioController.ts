@@ -74,34 +74,49 @@ export const createPortfolioItem = async (req: Request, res: Response): Promise<
 // ─────────────────────────────────────────────────────────────
 export const getArtistPortfolio = async (req: Request, res: Response): Promise<void> => {
     try {
-        // We assume ":artistId" is actually the "artist_id" from the artists table
-        const { artistId } = req.params;
-
-        // 1) Find the Artist row by artist_id
-        const artist = await Artist.findOne({ where: { artist_id: artistId } });
-        if (!artist) {
-             res.status(404).json({ message: 'Artist not found' });
-        }
-
-        // 2) Fetch all portfolio items for that artist_id
-        const portfolioItems = await Portfolio.findAll({
-            where: { artist_id: artist.artist_id },
-            include: [{ model: Artist, as: 'artist', attributes: ['bio'] }],
-        });
-
-        // 3) Convert the local image path to a full URL
-        const baseURL = process.env.BASE_URL || 'http://localhost:50001';
-        const updatedPortfolioItems = portfolioItems.map((item) => ({
-            ...item.toJSON(),
-            image_url: `${baseURL}/${item.image_url}`,
-        }));
-
-        res.status(200).json(updatedPortfolioItems);
-    } catch (error) {
-        console.error('Error retrieving portfolio items:', error);
-        res.status(500).json({ message: 'Failed to retrieve portfolio items' });
+      // We assume ":artistId" in the route corresponds to the "artist_id" field in the database
+      const { artistId } = req.params;
+  
+      // 1) Find the Artist row by artist_id
+      const artist = await Artist.findOne({ where: { artist_id: artistId } });
+      if (!artist) {
+        res.status(404).json({ message: 'Artist not found' });
+        return;
+      }
+  
+      // 2) Fetch all portfolio items for that artist_id
+      const portfolioItems = await Portfolio.findAll({
+        where: { artist_id: artist.artist_id },
+        include: [{ model: Artist, as: 'artist', attributes: ['bio'] }],
+      });
+  
+      // If no portfolio items exist, return an empty array
+      if (!portfolioItems || portfolioItems.length === 0) {
+        res.status(200).json([]);
+        return;
+      }
+  
+      // 3) Convert the local image path to a full URL
+      const baseURL = process.env.BASE_URL || 'http://localhost:50001';
+      const updatedPortfolioItems = portfolioItems.map((item) => {
+        const itemData = item.toJSON();
+        // Remove any leading slashes from image_url to avoid double slashes
+        const cleanImageUrl = (itemData.image_url as string).replace(/^\/+/, '');
+        return { 
+          ...itemData,
+          image_url: `${baseURL}/${cleanImageUrl}`,
+        };
+      });
+  
+      res.status(200).json(updatedPortfolioItems);
+      return;
+    } catch (error: any) {
+      console.error('Error retrieving portfolio items:', error);
+      res.status(500).json({ message: 'Failed to retrieve portfolio items', error: error.message });
+      return;
     }
-};
+  };
+  
 
 // ─────────────────────────────────────────────────────────────
 // UPDATE A PORTFOLIO ITEM
