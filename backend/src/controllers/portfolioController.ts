@@ -52,10 +52,17 @@ export const createPortfolioItem = async (req: Request, res: Response): Promise<
       }
   
       // Check if the artist exists
-      const artist = await Artist.findOne({ where: { artist_id } });
+      let artist = await Artist.findOne({ where: { artist_id } });
       if (!artist) {
-        res.status(404).json({ message: 'Artist profile not found. Please create your artist profile first.' });
-        return;
+        // Optionally auto-create an artist record if not found
+        // You might want to include default values for bio, profile_picture, etc.
+        artist = await Artist.create({
+          user_id: artist_id,  // or however you want to associate it
+          bio: '',
+          profile_picture: '',
+          portfolio: '',
+          is_student: false,
+        });
       }
   
       // Save relative path for database storage
@@ -75,6 +82,7 @@ export const createPortfolioItem = async (req: Request, res: Response): Promise<
       return;
     }
   };
+  
   
 
 // ─────────────────────────────────────────────────────────────
