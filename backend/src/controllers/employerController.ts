@@ -7,7 +7,7 @@ import { CustomRequest } from '../middleware/authMiddleware';
 import User from '../models/User'; // Assuming location is stored here
 
 // Use an environment variable for the upload folder, defaulting to 'uploads/'
-const uploadFolder = process.env.UPLOAD_FOLDER || 'uploads/';
+const uploadFolder = process.env.UPLOAD_FOLDER || 'uploads';
 
 // Configure Multer for file uploads
 const storage = multer.diskStorage({
