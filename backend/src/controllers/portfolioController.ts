@@ -91,6 +91,8 @@ export const createPortfolioItem = async (req: CustomRequest, res: Response): Pr
 // ─────────────────────────────────────────────────────────────
 export const getArtistPortfolio = async (req: Request, res: Response): Promise<void> => {
   try {
+    console.log('🔹 The artistId param is:', req.params.artistId);
+
     const { artistId } = req.params;
 
     // Query the Portfolio table for items that match this artistId
