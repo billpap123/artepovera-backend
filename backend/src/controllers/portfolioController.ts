@@ -74,19 +74,12 @@ export const createPortfolioItem = async (req: Request, res: Response): Promise<
 // ─────────────────────────────────────────────────────────────
 export const getArtistPortfolio = async (req: Request, res: Response): Promise<void> => {
     try {
-      // We assume ":artistId" in the route corresponds to the "artist_id" field in the database
+      // Retrieve artistId from route parameters
       const { artistId } = req.params;
   
-      // 1) Find the Artist row by artist_id
-      const artist = await Artist.findOne({ where: { artist_id: artistId } });
-      if (!artist) {
-        res.status(404).json({ message: 'Artist not found' });
-        return;
-      }
-  
-      // 2) Fetch all portfolio items for that artist_id
+      // Query the Portfolio table for items that match this artistId
       const portfolioItems = await Portfolio.findAll({
-        where: { artist_id: artist.artist_id },
+        where: { artist_id: artistId },
         include: [{ model: Artist, as: 'artist', attributes: ['bio'] }],
       });
   
@@ -96,13 +89,13 @@ export const getArtistPortfolio = async (req: Request, res: Response): Promise<v
         return;
       }
   
-      // 3) Convert the local image path to a full URL
+      // Construct full URL for each image
       const baseURL = process.env.BASE_URL || 'http://localhost:50001';
       const updatedPortfolioItems = portfolioItems.map((item) => {
         const itemData = item.toJSON();
-        // Remove any leading slashes from image_url to avoid double slashes
+        // Remove any leading slashes from the stored image URL to avoid double slashes
         const cleanImageUrl = (itemData.image_url as string).replace(/^\/+/, '');
-        return { 
+        return {
           ...itemData,
           image_url: `${baseURL}/${cleanImageUrl}`,
         };
@@ -116,6 +109,7 @@ export const getArtistPortfolio = async (req: Request, res: Response): Promise<v
       return;
     }
   };
+  
   
 
 // ─────────────────────────────────────────────────────────────
