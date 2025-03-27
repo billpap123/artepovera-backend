@@ -43,31 +43,39 @@ export const upload = multer({
 // ─────────────────────────────────────────────────────────────
 export const createPortfolioItem = async (req: Request, res: Response): Promise<void> => {
     try {
-        const { description, artist_id } = req.body;
-        const file = req.file;
-
-        // Must have file + valid artist_id
-        if (!file || !artist_id) {
-            res.status(400).json({ message: 'Image and artist_id are required' });
-            return;
-        }
-
-        // Save relative path for database storage
-        const imagePath = `uploads/${file.filename}`;
-
-        // Insert into the "artist_portfolios" table
-        const portfolioItem = await Portfolio.create({
-            artist_id,  // Must match an existing "artist_id" in the "artists" table
-            image_url: imagePath,
-            description,
-        });
-
-        res.status(201).json(portfolioItem);
-    } catch (error) {
-        console.error('Error creating portfolio item:', error);
-        res.status(500).json({ message: 'Failed to create portfolio item' });
+      const { description, artist_id } = req.body;
+      const file = req.file;
+  
+      if (!file || !artist_id) {
+        res.status(400).json({ message: 'Image and artist_id are required' });
+        return;
+      }
+  
+      // Check if the artist exists
+      const artist = await Artist.findOne({ where: { artist_id } });
+      if (!artist) {
+        res.status(404).json({ message: 'Artist profile not found. Please create your artist profile first.' });
+        return;
+      }
+  
+      // Save relative path for database storage
+      const imagePath = `uploads/${file.filename}`;
+      // Create the portfolio item
+      const portfolioItem = await Portfolio.create({
+        artist_id,
+        image_url: imagePath,
+        description,
+      });
+  
+      res.status(201).json(portfolioItem);
+      return;
+    } catch (error: any) {
+      console.error('Error creating portfolio item:', error);
+      res.status(500).json({ message: 'Failed to create portfolio item', error: error.message });
+      return;
     }
-};
+  };
+  
 
 // ─────────────────────────────────────────────────────────────
 // GET ALL PORTFOLIO ITEMS FOR A GIVEN ARTIST
