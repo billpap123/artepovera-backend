@@ -75,6 +75,9 @@ export const createPortfolioItem = async (req: CustomRequest, res: Response): Pr
       image_url: imagePath,
       description,
     });
+    console.log('File path:', file.path);
+console.log('File stored in DB as:', imagePath);
+
 
     res.status(201).json(portfolioItem);
     return;
