@@ -19,7 +19,9 @@ const app = express();
 // --------------------------------------
 // Ensure the uploads directory exists
 // --------------------------------------
-const uploadDirectory = path.join(__dirname, '..', 'uploads');
+const rawUploadFolder = process.env.UPLOAD_FOLDER || 'uploads';
+const uploadFolder = rawUploadFolder.replace(/\/+$/, ''); // Remove any trailing slashes
+const uploadDirectory = path.join(__dirname, '..', uploadFolder);
 if (!fs.existsSync(uploadDirectory)) {
   fs.mkdirSync(uploadDirectory, { recursive: true });
 }
@@ -43,9 +45,8 @@ app.use(
 );
 
 // --------------------------------------
-// Fix profile picture URL handling
+// Fix profile picture URL handling (remove double "/uploads")
 // --------------------------------------
-// Moved before static file serving so that any URLs with extra "/uploads" get corrected.
 app.use('/uploads', (req, res, next) => {
   if (req.url.startsWith('/uploads/uploads/')) {
     req.url = req.url.replace('/uploads/uploads/', '/uploads/');
@@ -75,21 +76,22 @@ app.use(
       if (allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
-        // If the origin isn't in the list, block it
         callback(new Error(`CORS: Origin ${origin} not allowed.`));
       }
     },
-    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     credentials: true,
   })
 );
+
+// Allow preflight requests for all routes
+app.options('*', cors());
 
 // --------------------------------------
 // MULTER SETUP (file uploads)
 // --------------------------------------
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    // Use the previously defined uploadDirectory for consistency
     cb(null, uploadDirectory);
   },
   filename: (req, file, cb) => {
@@ -102,12 +104,10 @@ const fileFilter = (req: any, file: any, cb: FileFilterCallback) => {
   if (file.mimetype === 'image/png' || file.mimetype === 'image/jpeg') {
     cb(null, true);
   } else {
-    // You could also pass an error here, e.g., cb(new Error('Only PNG and JPEG files are allowed'), false);
     cb(null, false);
   }
 };
 
-// Initialize multer
 const upload = multer({
   storage,
   fileFilter,
