@@ -57,6 +57,7 @@ router.post('/portfolios', authenticate, upload.single('image'), portfolioContro
 router.get('/portfolios/:artistId', authenticate, portfolioController.getArtistPortfolio);
 router.put('/portfolios/:id', authenticate, upload.single('image'), portfolioController.updatePortfolioItem);
 router.delete('/portfolios/:id', authenticate, portfolioController.deletePortfolioItem);
+router.get('/portfolios/me', authenticate, portfolioController.getMyPortfolio);
 
 /* --------------------------------
  * JOB POSTING ROUTES

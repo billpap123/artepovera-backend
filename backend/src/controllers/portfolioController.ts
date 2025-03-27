@@ -40,7 +40,7 @@ export const upload = multer({
 });
 
 // ─────────────────────────────────────────────────────────────
-// CREATE A NEW PORTFOLIO ITEM
+// CREATE A NEW PORTFOLIO ITEM (for the currently logged-in user)
 // ─────────────────────────────────────────────────────────────
 export const createPortfolioItem = async (req: CustomRequest, res: Response): Promise<void> => {
   try {
@@ -52,14 +52,14 @@ export const createPortfolioItem = async (req: CustomRequest, res: Response): Pr
       return;
     }
 
-    // Instead of taking artist_id from the body, we use the authenticated user's id.
+    // Use the authenticated user's id (from auth middleware)
     const userId = req.user?.id;
     if (!userId) {
       res.status(401).json({ message: 'Unauthorized: User not found in token' });
       return;
     }
 
-    // Find the artist record by the user's id (assuming Artist has a user_id field)
+    // Find the artist record by the user's id
     const artist = await Artist.findOne({ where: { user_id: userId } });
     if (!artist) {
       res.status(404).json({ message: 'Artist profile not found. Please create your artist profile first.' });
@@ -69,7 +69,7 @@ export const createPortfolioItem = async (req: CustomRequest, res: Response): Pr
     // Save relative path for database storage
     const imagePath = `uploads/${file.filename}`;
 
-    // Create the portfolio item using the actual artist_id from the Artist record
+    // Create the portfolio item using the actual artist_id
     const portfolioItem = await Portfolio.create({
       artist_id: artist.artist_id,
       image_url: imagePath,
@@ -86,11 +86,11 @@ export const createPortfolioItem = async (req: CustomRequest, res: Response): Pr
 };
 
 // ─────────────────────────────────────────────────────────────
-// GET ALL PORTFOLIO ITEMS FOR A GIVEN ARTIST
+// GET PORTFOLIO ITEMS FOR A SPECIFIC ARTIST (by artistId param)
+// e.g. GET /api/portfolios/:artistId
 // ─────────────────────────────────────────────────────────────
 export const getArtistPortfolio = async (req: Request, res: Response): Promise<void> => {
   try {
-    // Retrieve artistId from route parameters
     const { artistId } = req.params;
 
     // Query the Portfolio table for items that match this artistId
@@ -109,7 +109,58 @@ export const getArtistPortfolio = async (req: Request, res: Response): Promise<v
     const baseURL = process.env.BASE_URL || 'http://localhost:50001';
     const updatedPortfolioItems = portfolioItems.map((item) => {
       const itemData = item.toJSON();
-      // Remove any leading slashes from the stored image URL to avoid double slashes
+      // Remove any leading slashes from the stored image URL
+      const cleanImageUrl = (itemData.image_url as string).replace(/^\/+/, '');
+      return {
+        ...itemData,
+        image_url: `${baseURL}/${cleanImageUrl}`,
+      };
+    });
+
+    res.status(200).json(updatedPortfolioItems);
+    return;
+  } catch (error: any) {
+    console.error('Error retrieving portfolio items:', error);
+    res.status(500).json({ message: 'Failed to retrieve portfolio items', error: error.message });
+    return;
+  }
+};
+
+// ─────────────────────────────────────────────────────────────
+// GET PORTFOLIO ITEMS FOR THE CURRENTLY LOGGED-IN ARTIST
+// e.g. GET /api/portfolios/me
+// ─────────────────────────────────────────────────────────────
+export const getMyPortfolio = async (req: CustomRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(401).json({ message: 'Unauthorized: User not found in token' });
+      return;
+    }
+
+    // Find the artist record by user_id
+    const artist = await Artist.findOne({ where: { user_id: userId } });
+    if (!artist) {
+      res.status(404).json({ message: 'Artist profile not found. Please create your artist profile first.' });
+      return;
+    }
+
+    // Now fetch the portfolio items for that artist
+    const portfolioItems = await Portfolio.findAll({
+      where: { artist_id: artist.artist_id },
+      include: [{ model: Artist, as: 'artist', attributes: ['bio'] }],
+    });
+
+    // If no items exist, return an empty array
+    if (!portfolioItems || portfolioItems.length === 0) {
+      res.status(200).json([]);
+      return;
+    }
+
+    // Construct full URL for each image
+    const baseURL = process.env.BASE_URL || 'http://localhost:50001';
+    const updatedPortfolioItems = portfolioItems.map((item) => {
+      const itemData = item.toJSON();
       const cleanImageUrl = (itemData.image_url as string).replace(/^\/+/, '');
       return {
         ...itemData,
@@ -141,12 +192,10 @@ export const updatePortfolioItem = async (req: Request, res: Response): Promise<
       return;
     }
 
-    // If a new file was uploaded, update the image path
     if (file) {
       portfolioItem.image_url = `uploads/${file.filename}`;
     }
 
-    // Update description if provided
     if (description) {
       portfolioItem.description = description;
     }
