@@ -26,7 +26,19 @@ export const createJobPosting = async (
 
     // Extract employer ID from authenticated user
     const employerId = req.user.id;
-    const { title, description, location } = req.body;
+    // Extract new and existing fields from request body
+    const {
+      title,
+      description,
+      location,
+      city,
+      address,
+      budget,
+      difficulty,
+      deadline,
+      artistCategory, // front-end uses artistCategory
+      insurance,
+    } = req.body;
 
     // Ensure the employer exists
     const employer = await Employer.findOne({ where: { user_id: employerId } });
@@ -35,12 +47,19 @@ export const createJobPosting = async (
       return;
     }
 
-    // Create job posting
+    // Create job posting with the new fields
     const jobPosting = await JobPosting.create({
       employer_id: employer.employer_id, // Use employer's actual ID
       title,
       description,
       location,
+      city,
+      address,
+      budget,
+      difficulty,
+      deadline,
+      artist_category: artistCategory, // mapping to model's field name
+      insurance,
     });
 
     res.status(201).json({
@@ -56,7 +75,19 @@ export const createJobPosting = async (
 export const getAllJobPostings = async (req: CustomRequest, res: Response, next: NextFunction) => {
   try {
     const jobPostings = await JobPosting.findAll({
-      attributes: ['job_id', 'title', 'description', 'created_at'],
+      attributes: [
+        'job_id',
+        'title',
+        'description',
+        'city',
+        'address',
+        'budget',
+        'difficulty',
+        'deadline',
+        'artist_category',
+        'insurance',
+        'created_at',
+      ],
       include: [
         {
           model: Employer,
@@ -71,6 +102,14 @@ export const getAllJobPostings = async (req: CustomRequest, res: Response, next:
         id: job.job_id,
         title: job.title,
         description: job.description,
+        city: job.city,
+        address: job.address,
+        budget: job.budget,
+        difficulty: job.difficulty,
+        deadline: job.deadline,
+        artistCategory: job.artist_category,
+        insurance: job.insurance,
+        created_at: job.created_at,
         employerName: job.employer?.user?.fullname || 'Unknown',
       }))
     );
@@ -117,7 +156,15 @@ export const getJobPostingById = async (
       id: jobPosting.job_id,
       title: jobPosting.title,
       description: jobPosting.description,
+      city: jobPosting.city,
+      address: jobPosting.address,
+      budget: jobPosting.budget,
+      difficulty: jobPosting.difficulty,
+      deadline: jobPosting.deadline,
+      artistCategory: jobPosting.artist_category,
+      insurance: jobPosting.insurance,
       employerName: jobPosting.employer?.user?.fullname || 'Unknown',
+      created_at: jobPosting.created_at,
     });
   } catch (error) {
     console.error('Error fetching job posting:', error);
@@ -136,7 +183,19 @@ export const updateJobPosting = async (
 ): Promise<void> => {
   try {
     const { job_id } = req.params;
-    const { title, description, location } = req.body;
+    // Extract new and existing fields from request body
+    const {
+      title,
+      description,
+      location,
+      city,
+      address,
+      budget,
+      difficulty,
+      deadline,
+      artistCategory,
+      insurance,
+    } = req.body;
 
     const jobPosting = await JobPosting.findByPk(job_id);
     if (!jobPosting) {
@@ -144,9 +203,17 @@ export const updateJobPosting = async (
       return;
     }
 
+    // Update fields if provided, otherwise keep current values
     jobPosting.title = title || jobPosting.title;
     jobPosting.description = description || jobPosting.description;
     jobPosting.location = location || jobPosting.location;
+    jobPosting.city = city || jobPosting.city;
+    jobPosting.address = address || jobPosting.address;
+    jobPosting.budget = budget || jobPosting.budget;
+    jobPosting.difficulty = difficulty || jobPosting.difficulty;
+    jobPosting.deadline = deadline || jobPosting.deadline;
+    jobPosting.artist_category = artistCategory || jobPosting.artist_category;
+    jobPosting.insurance = insurance !== undefined ? insurance : jobPosting.insurance;
 
     await jobPosting.save();
 
