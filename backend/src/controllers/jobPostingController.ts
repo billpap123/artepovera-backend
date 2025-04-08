@@ -343,7 +343,7 @@ export const applyToJob = async (
 
     // 7) Build your notification link
     const baseUrl = process.env.FRONTEND_URL;
-    const artistProfileLink = `artepovera2.vercel.app/user-profile/${req.user.id}`;
+    const artistProfileLink = `https://artepovera2.vercel.app/user-profile/${req.user.id}`;
 
     // 8) Build the message using the job's title instead of the job ID.
     // For example, if the job title is "Graphic Designer Needed", the message will include that title.
