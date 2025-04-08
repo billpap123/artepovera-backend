@@ -17,11 +17,16 @@ import './models/associations';
 const app = express();
 
 // --------------------------------------
-// Ensure the uploads directory exists
+// Determine and ensure the uploads directory exists
 // --------------------------------------
-const rawUploadFolder = process.env.UPLOAD_FOLDER || 'uploads';
-const uploadFolder = rawUploadFolder.replace(/\/+$/, ''); // Remove any trailing slashes
-const uploadDirectory = path.join(__dirname, '..', uploadFolder);
+// If using persistent disk, set PERSISTENT_UPLOAD_DIR to the mount path (e.g., /var/data/uploads)
+// Otherwise, fallback to the default "uploads" folder
+const persistentUploadDir = process.env.PERSISTENT_UPLOAD_DIR;
+const rawUploadFolder = persistentUploadDir || process.env.UPLOAD_FOLDER || 'uploads';
+const uploadDirectory = persistentUploadDir 
+  ? rawUploadFolder  // rawUploadFolder already contains the absolute persistent disk path (e.g., /var/data/uploads)
+  : path.join(__dirname, '..', rawUploadFolder); // fallback to relative path
+
 if (!fs.existsSync(uploadDirectory)) {
   fs.mkdirSync(uploadDirectory, { recursive: true });
 }

@@ -193,7 +193,7 @@ export const updatePortfolioItem = async (req: Request, res: Response): Promise<
     }
 
     if (file) {
-      portfolioItem.image_url = `uploads/${file.filename}`;
+      portfolioItem.image_url = `https://artepovera-backend.onrender.com/uploads/${file.filename}`;
     }
 
     if (description) {
