@@ -342,7 +342,7 @@ export const applyToJob = async (
     const artistName = req.user.fullname || req.user.username || "An Artist";
 
     // 8) Build the base URL (fallback to localhost if not set) 
-    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const baseUrl = process.env.FRONTEND_URL ;
     const artistProfileLink = `${baseUrl}/artist-application/${req.user.id}`;
     
     // 9) Build an HTML message for the notification that includes the artist's name
