@@ -343,7 +343,7 @@ export const applyToJob = async (
 
     // 8) Build the base URL (fallback to localhost if not set) 
     const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-    const artistProfileLink = `${baseUrl}/user-profile/${req.user.id}`;
+    const artistProfileLink = `${baseUrl}/artist-application/${req.user.id}`;
     
     // 9) Build an HTML message for the notification that includes the artist's name
     const message = `${artistName} has applied for your job posting (ID: ${jobId}). <a href="${artistProfileLink}" target="_blank">View Profile</a>`;
