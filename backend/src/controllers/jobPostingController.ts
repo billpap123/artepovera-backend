@@ -328,7 +328,7 @@ export const applyToJob = async (
 
     console.log("✅ Job found. Fetching employer...");
 
-    // 5) Get the employer
+    // 5) Get the employer record
     const employerRecord = await Employer.findByPk(jobPosting.employer_id);
     if (!employerRecord) {
       res.status(404).json({ message: 'Employer not found for this job posting.' });
@@ -338,15 +338,16 @@ export const applyToJob = async (
 
     // 6) Fetch the artist's user record for fullname
     const artistRecord = await User.findByPk(req.user.id);
-    // Fallback to "Artist" if something's missing
+    // Fallback to "Artist" if missing
     const artistName = artistRecord?.fullname || "An Artist";
 
     // 7) Build your notification link
     const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
     const artistProfileLink = `${baseUrl}/user-profile/${req.user.id}`;
 
-    // 8) Build the message including the artist's full name
-    const message = `${artistName} has applied for your job posting (ID: ${jobId}). <a href="${artistProfileLink}" target="_blank">View Profile</a>`;
+    // 8) Build the message using the job's title instead of the job ID.
+    // For example, if the job title is "Graphic Designer Needed", the message will include that title.
+    const message = `${artistName} has applied for your job posting titled "${jobPosting.title}". <a href="${artistProfileLink}" target="_blank">View Profile</a>`;
 
     // 9) Create the notification
     await Notification.create({
@@ -359,6 +360,7 @@ export const applyToJob = async (
 
     console.log("✅ Notification created for employer user ID:", employerUserId);
 
+    // 10) Return success response including artist details
     res.status(201).json({
       message: 'Application successful, notification sent to employer.',
       artist: {
