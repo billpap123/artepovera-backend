@@ -328,39 +328,38 @@ export const applyToJob = async (
 
     console.log("✅ Job found. Fetching employer...");
 
-    // 5) employer_id in JobPosting references the Employer table's PK
+    // 5) Get the employer
     const employerRecord = await Employer.findByPk(jobPosting.employer_id);
     if (!employerRecord) {
       res.status(404).json({ message: 'Employer not found for this job posting.' });
       return;
     }
-
-    // 6) The actual user ID for the employer is in employerRecord.user_id
     const employerUserId = employerRecord.user_id;
 
-    // 7) Get the artist's name (assumes req.user contains fullname or similar)
-    const artistName = req.user.fullname || req.user.username || "An Artist";
+    // 6) Fetch the artist's user record for fullname
+    const artistRecord = await User.findByPk(req.user.id);
+    // Fallback to "Artist" if something's missing
+    const artistName = artistRecord?.fullname || "An Artist";
 
-    // 8) Build the base URL (fallback to localhost if not set) 
-    const baseUrl = process.env.FRONTEND_URL ;
-    const artistProfileLink = `${baseUrl}/artist-application/${req.user.id}`;
-    
-    // 9) Build an HTML message for the notification that includes the artist's name
+    // 7) Build your notification link
+    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const artistProfileLink = `${baseUrl}/user-profile/${req.user.id}`;
+
+    // 8) Build the message including the artist's full name
     const message = `${artistName} has applied for your job posting (ID: ${jobId}). <a href="${artistProfileLink}" target="_blank">View Profile</a>`;
 
-    // 10) Create a notification for the employer
+    // 9) Create the notification
     await Notification.create({
-      user_id: employerUserId, // Employer's user ID
-      sender_id: req.user.id,  // Artist's user ID
-      message,                 // Notification message
+      user_id: employerUserId,
+      sender_id: req.user.id, 
+      message,
       read_status: false,
       created_at: new Date(),
     });
 
     console.log("✅ Notification created for employer user ID:", employerUserId);
 
-    // 11) Return success response including artist details so that you can see the artist info
-    res.status(201).json({ 
+    res.status(201).json({
       message: 'Application successful, notification sent to employer.',
       artist: {
         id: req.user.id,
