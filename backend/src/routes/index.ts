@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import fs from 'fs';
+import path from 'path';
 import * as userController from '../controllers/userController';
 import * as artistController from '../controllers/artistController';
 import * as employerController from '../controllers/employerController';
@@ -20,7 +22,14 @@ import {
 // Import associations to initialize Sequelize relationships
 import '../models/associations';
 
+// ***** Ensure the "uploads" folder exists *****
+const uploadsDir = path.join(__dirname, '../../uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir);
+}
+
 const router = Router();
+
 // Notification routes// Notification routes
 router.get('/notifications/:userId', authenticate, getNotifications);
 router.put('/notifications/:notificationId', authenticate, markNotificationAsRead);
@@ -79,8 +88,8 @@ router.delete('/job-postings/:job_id', authenticate, jobPostingController.delete
 router.get('/job-postings', authenticate, jobPostingController.getAllJobPostings);
 
 // Fetch job postings by employer ID (?employer_id=xxx)
-
 router.post('/jobs/:jobId/apply', authenticate, jobPostingController.applyToJob);
+
 // Chat routes
 router.post('/chats', authenticate, chatController.createChat); // Create chat after mutual likes
 router.post('/chats/send', authenticate, chatController.sendMessage); // Send message
