@@ -342,7 +342,7 @@ export const applyToJob = async (
     const artistName = artistRecord?.fullname || "An Artist";
 
     // 7) Build your notification link
-    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const baseUrl = process.env.FRONTEND_URL;
     const artistProfileLink = `${baseUrl}/user-profile/${req.user.id}`;
 
     // 8) Build the message using the job's title instead of the job ID.
