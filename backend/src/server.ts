@@ -1,59 +1,44 @@
 // src/server.ts
+// Imports needed for Express, Sequelize, Routes, Cors, Helmet, Dotenv, Multer, Cloudinary
 import express from 'express';
 import sequelize from './config/db';
 import routes from './routes/index';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import multer, { FileFilterCallback } from 'multer';
-import path from 'path'; // Ensure path is imported
-import fs from 'fs';   // Ensure fs is imported
+import path from 'path'; // Keep path for potential use (e.g., path.extname)
 import helmet from 'helmet';
+import { v2 as cloudinary } from 'cloudinary'; // Import Cloudinary SDK
 
 // Load environment variables from .env
 dotenv.config();
 
 // Import models and associations (Sequelize relationships)
-import './models/associations';
+import './models/associations'; // Ensure this path is correct
+
+// --- Cloudinary Configuration ---
+cloudinary.config({
+  // These names MUST match the environment variables you set in Render
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+  secure: true, // Use https URLs
+});
+// Log confirmation (avoid logging the secret!)
+console.log('[Cloudinary] SDK Configured. Cloud Name:', process.env.CLOUDINARY_CLOUD_NAME ? 'OK' : 'MISSING!');
+// --- End Cloudinary Configuration ---
 
 const app = express();
 
-// --- START DEBUG LOGGING ---
-console.log('--- Upload Directory Debug ---');
 // --------------------------------------
-// Determine and ensure the uploads directory exists
+// REMOVED: Disk path calculation and fs.mkdirSync logic
 // --------------------------------------
-// If using persistent disk, set PERSISTENT_UPLOAD_DIR to the mount path (e.g., /var/data/uploads)
-// Otherwise, fallback to the default "uploads" folder
-const persistentUploadDir = process.env.PERSISTENT_UPLOAD_DIR;
-console.log(`[DEBUG] [ENV] PERSISTENT_UPLOAD_DIR: ${persistentUploadDir}`); // Log Env Var
-
-const rawUploadFolder = persistentUploadDir || process.env.UPLOAD_FOLDER || 'uploads';
-const uploadDirectory = persistentUploadDir
-  ? rawUploadFolder  // rawUploadFolder already contains the absolute persistent disk path (e.g., /var/data/uploads)
-  : path.join(__dirname, '..', rawUploadFolder); // fallback to relative path
-
-console.log(`[DEBUG] [CONFIG] Resolved uploadDirectory: ${uploadDirectory}`); // Log the path actually used!
-
-// Check if directory exists/create it
-if (!fs.existsSync(uploadDirectory)) {
-  try {
-    console.log(`[DEBUG] [FS] Directory does not exist. Attempting to create: ${uploadDirectory}`); // Log creation attempt
-    fs.mkdirSync(uploadDirectory, { recursive: true });
-    console.log(`[DEBUG] [FS] Directory created successfully: ${uploadDirectory}`); // Log success
-  } catch (err) {
-    console.error(`[ERROR] [FS] Failed to create directory ${uploadDirectory}:`, err); // Log specific error
-  }
-} else {
-   console.log(`[DEBUG] [FS] Directory already exists: ${uploadDirectory}`); // Log if exists
-}
-// --- END DEBUG LOGGING ---
-
 
 // --------------------------------------
 // Sync database models
 // --------------------------------------
 sequelize
-  .sync({ alter: true })
+  .sync({ alter: true }) // Consider changing alter: true to false in production
   .then(() => console.log('Database & tables synced successfully!'))
   .catch((error) => console.error('Error syncing database:', error.message));
 
@@ -62,46 +47,37 @@ sequelize
 // --------------------------------------
 app.use(
   helmet({
-    crossOriginEmbedderPolicy: false,
-    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    // Adjust Helmet options as needed, defaults are often good
+    crossOriginEmbedderPolicy: false, // Keep if needed for compatibility
+    crossOriginResourcePolicy: { policy: 'cross-origin' }, // Keep if needed
   })
 );
 
 // --------------------------------------
-// Fix profile picture URL handling (remove double "/uploads")
+// REMOVED: URL fixing middleware for '/uploads/uploads'
 // --------------------------------------
-app.use('/uploads', (req, res, next) => {
-  if (req.url.startsWith('/uploads/uploads/')) {
-    // console.log(`[DEBUG] Fixing double uploads URL: ${req.url}`); // Optional: log URL fixing
-    req.url = req.url.replace('/uploads/uploads/', '/uploads/');
-  }
-  next();
-});
 
 // --------------------------------------
-// Serve static files from /uploads
+// REMOVED: express.static for '/uploads' - Cloudinary handles serving
 // --------------------------------------
-console.log(`[DEBUG] [STATIC] Setting up static server for route '/uploads' from path: ${uploadDirectory}`); // Log static setup
-app.use('/uploads', express.static(uploadDirectory));
 
 // --------------------------------------
 // CORS CONFIGURATION
 // --------------------------------------
 const allowedOrigins = [
-  'http://localhost:3000',
-  'https://artepovera2.vercel.app',
-  'https://artepovera2-dyloo5rwa-vasilis-projects-01b75e68.vercel.app',
+  'http://localhost:3000', // For local dev
+  'https://artepovera2.vercel.app', // Your main frontend URL
+  // Add any other Vercel preview URLs if needed, or use a more dynamic check
 ];
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (e.g., mobile apps, curl)
-      if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) {
+      // Allow requests with no origin (like mobile apps or curl) OR from allowed origins
+      if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
-        // console.warn(`[CORS] Blocked origin: ${origin}`); // Optional: log blocked origins
+        console.warn(`[CORS] Blocked origin: ${origin}`); // Good to log blocked origins
         callback(new Error(`CORS: Origin ${origin} not allowed.`));
       }
     },
@@ -114,37 +90,27 @@ app.use(
 app.options('*', cors());
 
 // --------------------------------------
-// MULTER SETUP (file uploads)
+// MULTER SETUP (Using Memory Storage)
 // --------------------------------------
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    // Log the destination being used for *this specific upload*
-    console.log(`[DEBUG] [MULTER] Destination check for file '${file.originalname}'. Using path: ${uploadDirectory}`);
-    // Optional: Check existence again right before upload, though less critical with startup check
-    // if (!fs.existsSync(uploadDirectory)) { console.error(`[ERROR] [MULTER] Destination directory ${uploadDirectory} missing JUST BEFORE upload!`); }
-    cb(null, uploadDirectory); // Use the resolved uploadDirectory
-  },
-  filename: (req, file, cb) => {
-    const uniqueName = Date.now() + path.extname(file.originalname);
-    // console.log(`[DEBUG] [MULTER] Generating filename: ${uniqueName}`); // Optional: log filename
-    cb(null, uniqueName);
-  },
-});
+const storage = multer.memoryStorage(); // Configure multer to use memory storage
 
 const fileFilter = (req: any, file: any, cb: FileFilterCallback) => {
+  // Keep your file type filter
   if (file.mimetype === 'image/png' || file.mimetype === 'image/jpeg') {
     cb(null, true);
   } else {
-    // console.log(`[DEBUG] [MULTER] File rejected by filter: ${file.originalname} (${file.mimetype})`); // Optional: log rejected files
+    console.log(`[MULTER] File rejected by filter: ${file.originalname} (${file.mimetype})`);
     cb(null, false);
   }
 };
 
+// Create the multer instance configured for memory storage
 const upload = multer({
-  storage,
-  fileFilter,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB limit
+  storage: storage, // Use memory storage
+  fileFilter: fileFilter,
+  limits: { fileSize: 5 * 1024 * 1024 }, // Keep 5 MB limit
 });
+// --- End Multer Setup ---
 
 // --------------------------------------
 // Parse JSON and URL-encoded bodies
@@ -155,17 +121,23 @@ app.use(express.urlencoded({ extended: true }));
 // --------------------------------------
 // USE YOUR MAIN API ROUTES
 // --------------------------------------
-// Example: Assuming your routes might use the 'upload' middleware
-// Make sure routes needing upload are defined *after* multer setup
-// E.g., app.post('/api/profile/picture', upload.single('profilePic'), yourRouteHandler);
+// IMPORTANT: Your actual upload logic using cloudinary.uploader.upload_stream
+// needs to be implemented within the route handlers defined in './routes/index'
+// where you use the 'upload' middleware (e.g., upload.single('profilePic'))
 app.use('/api', routes);
+console.log('[SETUP] API routes mounted under /api');
 
 // --------------------------------------
 // ERROR HANDLING
 // --------------------------------------
-app.use((err: any, req: any, res: any, next: any) => {
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error("[ERROR] Unhandled error:", err.stack); // Log the full stack
-  res.status(500).json({ error: 'Internal Server Error' });
+  // Avoid sending stack trace in production
+  res.status(err.status || 500).json({
+       error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message,
+       // Optionally include stack in dev
+       ...(process.env.NODE_ENV !== 'production' && { stack: err.stack })
+   });
 });
 
 // --------------------------------------
@@ -174,7 +146,8 @@ app.use((err: any, req: any, res: any, next: any) => {
 const PORT = process.env.PORT || 5001;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
-  // Log final confirmation after server starts
-  console.log(`[INFO] Upload directory configured as: ${uploadDirectory}`);
-  console.log(`[INFO] Static files for /uploads route served from: ${uploadDirectory}`);
+  // REMOVED logs related to the old uploadDirectory
 });
+
+// Export 'upload' if needed by your routes file directly (alternative to passing via req)
+// export { upload }; // Uncomment if your route setup imports it
