@@ -1,12 +1,12 @@
 // src/server.ts
-// Imports needed for Express, Sequelize, Routes, Cors, Helmet, Dotenv, Multer, Cloudinary
+// Imports needed for Express, Sequelize, Routes, Cors, Helmet, Dotenv, Cloudinary
 import express from 'express';
 import sequelize from './config/db';
-import routes from './routes/index';
+import routes from './routes/index'; // Imports the configured router
 import dotenv from 'dotenv';
 import cors from 'cors';
-import multer, { FileFilterCallback } from 'multer';
-import path from 'path'; // Keep path for potential use (e.g., path.extname)
+// REMOVED: import multer, { FileFilterCallback } from 'multer'; // Multer is now configured elsewhere
+import path from 'path'; // Keep path if needed elsewhere (e.g., by dependencies)
 import helmet from 'helmet';
 import { v2 as cloudinary } from 'cloudinary'; // Import Cloudinary SDK
 
@@ -17,6 +17,7 @@ dotenv.config();
 import './models/associations'; // Ensure this path is correct
 
 // --- Cloudinary Configuration ---
+// Ensure Cloudinary is configured early
 cloudinary.config({
   // These names MUST match the environment variables you set in Render
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -31,7 +32,7 @@ console.log('[Cloudinary] SDK Configured. Cloud Name:', process.env.CLOUDINARY_C
 const app = express();
 
 // --------------------------------------
-// REMOVED: Disk path calculation and fs.mkdirSync logic
+// REMOVED: Disk path calculation, fs.mkdirSync logic, and related debug logs
 // --------------------------------------
 
 // --------------------------------------
@@ -47,9 +48,8 @@ sequelize
 // --------------------------------------
 app.use(
   helmet({
-    // Adjust Helmet options as needed, defaults are often good
-    crossOriginEmbedderPolicy: false, // Keep if needed for compatibility
-    crossOriginResourcePolicy: { policy: 'cross-origin' }, // Keep if needed
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
   })
 );
 
@@ -58,7 +58,7 @@ app.use(
 // --------------------------------------
 
 // --------------------------------------
-// REMOVED: express.static for '/uploads' - Cloudinary handles serving
+// REMOVED: express.static for '/uploads' and related debug logs
 // --------------------------------------
 
 // --------------------------------------
@@ -67,17 +67,16 @@ app.use(
 const allowedOrigins = [
   'http://localhost:3000', // For local dev
   'https://artepovera2.vercel.app', // Your main frontend URL
-  // Add any other Vercel preview URLs if needed, or use a more dynamic check
+  // Add any other Vercel preview URLs if needed
 ];
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps or curl) OR from allowed origins
       if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
-        console.warn(`[CORS] Blocked origin: ${origin}`); // Good to log blocked origins
+        console.warn(`[CORS] Blocked origin: ${origin}`);
         callback(new Error(`CORS: Origin ${origin} not allowed.`));
       }
     },
@@ -90,57 +89,42 @@ app.use(
 app.options('*', cors());
 
 // --------------------------------------
-// MULTER SETUP (Using Memory Storage)
+// REMOVED: MULTER SETUP (Moved to middleware/multerConfig.ts)
 // --------------------------------------
-const storage = multer.memoryStorage(); // Configure multer to use memory storage
-
-const fileFilter = (req: any, file: any, cb: FileFilterCallback) => {
-  // Keep your file type filter
-  if (file.mimetype === 'image/png' || file.mimetype === 'image/jpeg') {
-    cb(null, true);
-  } else {
-    console.log(`[MULTER] File rejected by filter: ${file.originalname} (${file.mimetype})`);
-    cb(null, false);
-  }
-};
-
-// Create the multer instance configured for memory storage
-const upload = multer({
-  storage: storage, // Use memory storage
-  fileFilter: fileFilter,
-  limits: { fileSize: 5 * 1024 * 1024 }, // Keep 5 MB limit
-});
-// --- End Multer Setup ---
+// REMOVED: const storage = multer.memoryStorage();
+// REMOVED: const fileFilter = (req: any, file: any, cb: FileFilterCallback) => { ... };
+// REMOVED: const upload = multer({ ... });
+// --- End Removed Multer Setup ---
 
 // --------------------------------------
 // Parse JSON and URL-encoded bodies
 // --------------------------------------
+// Apply these *before* your routes
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // --------------------------------------
 // USE YOUR MAIN API ROUTES
 // --------------------------------------
-// IMPORTANT: Your actual upload logic using cloudinary.uploader.upload_stream
-// needs to be implemented within the route handlers defined in './routes/index'
-// where you use the 'upload' middleware (e.g., upload.single('profilePic'))
+// The 'routes' import already contains the router instance with middleware applied
 app.use('/api', routes);
 console.log('[SETUP] API routes mounted under /api');
 
 // --------------------------------------
 // ERROR HANDLING
 // --------------------------------------
+// Apply this *after* your routes
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error("[ERROR] Unhandled error:", err.stack); // Log the full stack
-  // Avoid sending stack trace in production
   res.status(err.status || 500).json({
        error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message,
-       // Optionally include stack in dev
-       ...(process.env.NODE_ENV !== 'production' && { stack: err.stack })
+       ...(process.env.NODE_ENV !== 'production' && { stack: err.stack }) // Optionally include stack in dev
    });
 });
-// Export the configured multer instance
-export { upload }; // <<< ADD THIS LINE
+
+// --------------------------------------
+// REMOVED: export { upload }; // Export was moved to middleware/multerConfig.ts
+// --------------------------------------
 
 // --------------------------------------
 // START THE SERVER
@@ -151,5 +135,4 @@ app.listen(PORT, () => {
   // REMOVED logs related to the old uploadDirectory
 });
 
-// Export 'upload' if needed by your routes file directly (alternative to passing via req)
-// export { upload }; // Uncomment if your route setup imports it
+// REMOVED: export { upload }; // Second instance of removed export
