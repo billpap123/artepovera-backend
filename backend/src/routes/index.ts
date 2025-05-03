@@ -21,8 +21,7 @@ import {
   deleteAllNotifications,
 } from '../controllers/notificationController';
 // Import the centrally configured upload instance from server.ts (adjust path if needed)
-import { upload } from '../server'; // <<< ADD THIS IMPORT
-
+import { upload } from '../middleware/multerConfig'; // <<< CORRECT PATH (Adjust if your folder structure is different)
 // Import associations to initialize Sequelize relationships (keep if needed)
 import '../models/associations';
 
