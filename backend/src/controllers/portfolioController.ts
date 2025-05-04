@@ -315,11 +315,13 @@ export const deletePortfolioItem = async (req: CustomRequest, res: Response): Pr
        return;
     }
 
-    // Find the item and verify ownership
-     const portfolioItem = await Portfolio.findOne({
-        where: { id: id },
-        include: [{ model: Artist, as: 'artist', where: { user_id: userId }, required: true }]
-    });
+  // Find the item and verify ownership
+  const portfolioItem = await Portfolio.findOne({
+    // --- CORRECTED ---
+    where: { portfolio_id: id },
+    // --- END CORRECTION ---
+    include: [{ model: Artist, as: 'artist', where: { user_id: userId }, required: true }]
+});
 
     if (!portfolioItem) {
       res.status(404).json({ message: 'Portfolio item not found or you are not authorized to delete it.' });
