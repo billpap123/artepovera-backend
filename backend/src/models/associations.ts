@@ -4,7 +4,7 @@ import Employer from './Employer';
 import Chat from './Chat';
 import Message from './Message';
 import JobPosting from './JobPosting';
-
+import Review from './Review';
 // 1) Artist <-> User
 User.hasOne(Artist, { foreignKey: 'user_id', as: 'artistProfile' });
 Artist.belongsTo(User, { foreignKey: 'user_id', as: 'artistUserDetails' });
@@ -37,3 +37,13 @@ Employer.hasMany(JobPosting, {
   as: 'jobPostings',
   foreignKey: 'employer_id',
 });
+// src/models/associations.ts
+// ... other associations ...
+Review.belongsTo(Chat, { foreignKey: 'chat_id', as: 'chat' });
+Chat.hasMany(Review, { foreignKey: 'chat_id', as: 'reviews' });
+
+Review.belongsTo(User, { foreignKey: 'reviewer_user_id', as: 'reviewer' });
+User.hasMany(Review, { foreignKey: 'reviewer_user_id', as: 'reviewsGiven' });
+
+Review.belongsTo(User, { foreignKey: 'reviewed_user_id', as: 'reviewed' });
+User.hasMany(Review, { foreignKey: 'reviewed_user_id', as: 'reviewsReceived' });

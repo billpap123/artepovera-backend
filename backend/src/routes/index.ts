@@ -12,6 +12,8 @@ import { authenticate } from '../middleware/authMiddleware';
 // REMOVED: import { uploadProfilePicture } from '../controllers/artistController'; // Correctly removed
 import * as portfolioController from '../controllers/portfolioController';
 // REMOVED: import { upload } from '../controllers/portfolioController'; // Correctly removed
+import * as reviewController from '../controllers/reviewController';
+
 import { getLocations } from '../controllers/locationController';
 import {
   getNotifications,
@@ -90,13 +92,10 @@ router.post('/chats/send', authenticate, chatController.sendMessage);
 router.get('/chats/:chat_id/messages', authenticate, chatController.getChatHistory);
 router.get('/chats/user/:user_id', authenticate, chatController.fetchMessages);
 
-
-// --- Review routes ---
-// Keep commented if not implemented
-// router.post('/reviews', authenticate, reviewController.createReview);
-// router.get('/reviews/chat/:chat_id', authenticate, reviewController.getReviewsByChatId);
-// router.get('/reviews/chat/:chat_id/average', authenticate, reviewController.getAverageRatingByChatId);
-
+router.post('/reviews', authenticate, reviewController.submitReview);
+// Add GET routes later for fetching reviews/ratings
+// router.get('/users/:userId/reviews', authenticate, reviewController.getReviewsForUser);
+// router.get('/users/:userId/average-rating', authenticate, reviewController.getAverageRatingForUser);
 
 // --- Location routes ---
 router.get('/locations', getLocations); // Public maybe? Or add authenticate
