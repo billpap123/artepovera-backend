@@ -3,15 +3,15 @@ import { Router } from 'express';
 // REMOVED: import fs from 'fs'; // No longer needed
 // REMOVED: import path from 'path'; // No longer needed unless used elsewhere in routes
 import * as userController from '../controllers/userController';
-import * as artistController from '../controllers/artistController';
-import * as employerController from '../controllers/employerController';
+import * as artistController from '../controllers/artistController'; // Ensure imported
+import * as employerController from '../controllers/employerController'; // Ensure imported
 import * as jobPostingController from '../controllers/jobPostingController';
 import * as chatController from '../controllers/chatController';
 //import * as reviewController from '../controllers/reviewController'; // Keep commented if not used
 import { authenticate } from '../middleware/authMiddleware';
-// REMOVED: import { uploadProfilePicture } from '../controllers/artistController'; // Incorrect import
+// REMOVED: import { uploadProfilePicture } from '../controllers/artistController'; // Correctly removed
 import * as portfolioController from '../controllers/portfolioController';
-// REMOVED: import { upload } from '../controllers/portfolioController'; // Incorrect import
+// REMOVED: import { upload } from '../controllers/portfolioController'; // Correctly removed
 import { getLocations } from '../controllers/locationController';
 import {
   getNotifications,
@@ -20,14 +20,12 @@ import {
   deleteNotification,
   deleteAllNotifications,
 } from '../controllers/notificationController';
-// Import the centrally configured upload instance from server.ts (adjust path if needed)
-import { upload } from '../middleware/multerConfig'; // <<< CORRECT PATH (Adjust if your folder structure is different)
+// Import the centrally configured upload instance from middleware
+import { upload } from '../middleware/multerConfig'; // Correct import path
 // Import associations to initialize Sequelize relationships (keep if needed)
 import '../models/associations';
 
 // ***** REMOVED: Ensure the "uploads" folder exists *****
-// const uploadsDir = ...
-// if (!fs.existsSync...
 
 const router = Router();
 
@@ -42,40 +40,37 @@ router.delete('/notifications/:userId/all', authenticate, deleteAllNotifications
 router.post('/users/register', userController.createUser);
 router.post('/users/login', userController.loginUser);
 router.get('/users/me', authenticate, userController.getCurrentUser);
-router.put('/users/:id', authenticate, userController.updateUser); // Note: usually update /users/me instead of by ID
+router.put('/users/:id', authenticate, userController.updateUser); // Note: Check authorization in controller if allowing update by ID param
 router.post("/users/get-names", userController.getUserNames);
 router.get('/users/profile/:userId', authenticate, userController.getUserProfile);
 router.post('/users/:userId/like', authenticate, userController.toggleLike);
 router.get('/users/:userId/like', authenticate, userController.checkLike);
 
 // --- Artist-specific routes (protected) ---
-// Use upload.single with the correct field name ('profile_picture')
-// Changed route path - assumes update is for the logged-in user based on token
 router.post('/artists/profile', authenticate, upload.single('profile_picture'), artistController.updateArtistProfile);
-// GET and DELETE might still use ID param if viewing/deleting *other* artists is allowed
 router.get('/artists/:id', authenticate, artistController.getArtistById);
-router.delete('/artists/:id', authenticate, artistController.deleteArtist);
-router.get('/artists', authenticate, artistController.getArtistsWithLocation); // Route for getting artists with location
-router.delete('/profile/picture', authenticate, artistController.deleteArtistProfilePicture);
-
+router.delete('/artists/:id', authenticate, artistController.deleteArtist); // Deletes whole artist profile
+router.get('/artists', authenticate, artistController.getArtistsWithLocation);
+// --- CORRECTED PATH for deleting artist picture ---
+router.delete('/artists/profile/picture', authenticate, artistController.deleteArtistProfilePicture);
+// --- END CORRECTION ---
 
 
 // --- Employer-specific routes (protected) ---
-// Use upload.single with the correct field name ('profile_picture')
-// Changed route path - assumes update is for the logged-in user based on token
 router.post('/employers/profile', authenticate, upload.single('profile_picture'), employerController.updateEmployerProfile);
-// GET and DELETE might still use ID param
 router.get('/employers/:id', authenticate, employerController.getEmployerById);
-router.delete('/employers/:id', authenticate, employerController.deleteEmployer);
-router.get('/employers', authenticate, employerController.getEmployersWithLocation); // Route for getting employers with location
+router.delete('/employers/:id', authenticate, employerController.deleteEmployer); // Deletes whole employer profile
+router.get('/employers', authenticate, employerController.getEmployersWithLocation);
+// --- ADDED Route for deleting employer picture ---
+router.delete('/employers/profile/picture', authenticate, employerController.deleteEmployerProfilePicture);
+// --- END ADD ---
 
 
 // --- Portfolio routes ---
-// Use the imported 'upload' instance and correct field name 'image'
 router.post('/portfolios', authenticate, upload.single('image'), portfolioController.createPortfolioItem);
-router.get('/portfolios/me', authenticate, portfolioController.getMyPortfolio); // Get logged-in user's portfolio
-router.get('/portfolios/:artistId', authenticate, portfolioController.getArtistPortfolio); // Get specific artist's portfolio
-router.put('/portfolios/:id', authenticate, upload.single('image'), portfolioController.updatePortfolioItem); // Use imported upload
+router.get('/portfolios/me', authenticate, portfolioController.getMyPortfolio);
+router.get('/portfolios/:artistId', authenticate, portfolioController.getArtistPortfolio);
+router.put('/portfolios/:id', authenticate, upload.single('image'), portfolioController.updatePortfolioItem);
 router.delete('/portfolios/:id', authenticate, portfolioController.deletePortfolioItem);
 
 
