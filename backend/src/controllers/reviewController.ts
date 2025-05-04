@@ -114,62 +114,30 @@ export const getAverageRatingForUser = async (req: Request, res: Response): Prom
 };
 
 
+// TEMPORARY simplified version for debugging getReviewsForUser
 export const getReviewsForUser = async (req: Request, res: Response): Promise<void> => {
   try {
        const userId = parseInt(req.params.userId, 10);
        if (isNaN(userId)) { res.status(400).json({ message: 'Invalid User ID.' }); return; }
 
-       console.log(`[getReviewsForUser] Fetching reviews for reviewed_user_id: ${userId}`); // Log start
+       console.log(`[DEBUG] Fetching raw reviews for reviewed_user_id: ${userId}`);
 
-       const reviews = await Review.findAll({ // <<< The Database Fetch
+       // Fetch reviews WITHOUT includes and WITHOUT formatting map for now
+       const reviews = await Review.findAll({
           where: { reviewed_user_id: userId },
-          include: [
-              {
-                  model: User,
-                  as: 'reviewer',
-                  attributes: ['user_id', 'fullname', 'user_type'],
-                  include: [
-                      { model: Artist, as: 'artistProfile', attributes: ['profile_picture'], required: false },
-                      { model: Employer, as: 'employerProfile', attributes: ['profile_picture'], required: false }
-                  ]
-              }
-          ],
-          order: [['created_at', 'DESC']]
+          // NO 'include' for this test
+          // NO explicit 'attributes' (should get all model attributes including timestamps)
+          order: [['created_at', 'DESC']] // Still try to order
        });
 
-       // --- ADD LOG HERE ---
-       // Log the raw data received from Sequelize before any mapping
+       // Log the raw data fetched by Sequelize on the backend
        console.log("[DEBUG] Raw 'reviews' fetched from DB:", JSON.stringify(reviews, null, 2));
-       // --- END LOG ---
 
-       // Format the response (Keep your existing mapping logic)
-       const formattedReviews = reviews.map(review => {
-           const reviewJson = review.toJSON() as any;
-           const reviewerProfilePic = reviewJson.reviewer?.artistProfile?.profile_picture || reviewJson.reviewer?.employerProfile?.profile_picture || null;
-           const finalReviewer = reviewJson.reviewer ? {
-               user_id: reviewJson.reviewer.user_id,
-               fullname: reviewJson.reviewer.fullname,
-               profile_picture: reviewerProfilePic
-           } : null;
-
-           // Check what properties reviewJson actually has here
-           // console.log("reviewJson inside map:", reviewJson); // Optional inner log
-
-           return {
-               review_id: reviewJson.review_id,
-               chat_id: reviewJson.chat_id,
-               overall_rating: reviewJson.overall_rating,
-               specific_answers: reviewJson.specific_answers,
-               created_at: reviewJson.created_at, // Is this property actually present on reviewJson?
-               reviewer: finalReviewer
-           };
-       });
-
-       console.log("[DEBUG] Sending formatted reviews to frontend."); // Log before sending
-       res.status(200).json({ reviews: formattedReviews });
+       // Send the raw data directly
+       res.status(200).json({ reviews }); // Send the potentially unformatted array
 
   } catch (error: any) {
-       console.error(`Error fetching reviews for user ${req.params.userId}:`, error);
+       console.error(`Error fetching raw reviews for user ${req.params.userId}:`, error);
        res.status(500).json({ message: 'Failed to fetch reviews.', error: error.message });
   }
 };
