@@ -141,12 +141,27 @@ export const getReviewsForUser = async (req: Request, res: Response): Promise<vo
       console.log("[DEBUG] Raw 'reviews' fetched WITH includes:", JSON.stringify(reviews, null, 2));
       // --- END LOG ---
 
-      // --- Temporarily REMOVE the formattedReviews map ---
-      // const formattedReviews = reviews.map(review => {
-      //    // ... formatting logic ...
-      // });
-      // res.status(200).json({ reviews: formattedReviews });
-      // --- END REMOVAL ---
+      // Inside getReviewsForUser -> formattedReviews.map(...)
+ const formattedReviews = reviews.map(review => {
+  const reviewJson = review.toJSON() as any;
+  const reviewerProfilePic = reviewJson.reviewer?.artistProfile?.profile_picture || reviewJson.reviewer?.employerProfile?.profile_picture || null;
+  const finalReviewer = reviewJson.reviewer ? {
+      user_id: reviewJson.reviewer.user_id,
+      fullname: reviewJson.reviewer.fullname,
+      profile_picture: reviewerProfilePic
+  } : null;
+
+  return {
+      review_id: reviewJson.review_id,
+      chat_id: reviewJson.chat_id,
+      overall_rating: reviewJson.overall_rating,
+      specific_answers: reviewJson.specific_answers,
+      // --- FIX: Access camelCase, return snake_case ---
+      created_at: reviewJson.createdAt, // <<< Access correct source field
+      // --- END FIX ---
+      reviewer: finalReviewer
+  };
+});
 
       // --- Send the RAW result directly ---
       console.log("[DEBUG] Sending RAW reviews array to frontend.");
