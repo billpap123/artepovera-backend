@@ -54,30 +54,63 @@ interface AverageRatingResult {
     reviewCount: number | string;
 }
 
-// GET AVERAGE RATING FOR A USER
+
+// --- Define interface for the SUM/COUNT aggregation result ---
+interface SumRatingResult {
+  ratingSum: number | string | null; // SUM can return decimal/string or null if no rows
+  reviewCount: number | string;     // COUNT returns BIGINT which might be string
+}
+
+/* -------------------------------------------------------------------------- */
+/* GET AVERAGE RATING FOR A USER (Using SUM / COUNT)                          */
+/* -------------------------------------------------------------------------- */
+// GET /api/users/:userId/average-rating
 export const getAverageRatingForUser = async (req: Request, res: Response): Promise<void> => {
-    try {
-        const userId = parseInt(req.params.userId, 10);
-        if (isNaN(userId)) { res.status(400).json({ message: 'Invalid User ID.' }); return; }
+  try {
+      const userId = parseInt(req.params.userId, 10);
+      if (isNaN(userId)) {
+          res.status(400).json({ message: 'Invalid User ID.' }); return;
+      }
 
-        const result = await Review.findOne({
-            where: { reviewed_user_id: userId },
-            attributes: [
-                [sequelize.fn('AVG', sequelize.col('overall_rating')), 'averageRating'],
-                [sequelize.fn('COUNT', sequelize.col('review_id')), 'reviewCount']
-            ],
-            raw: true
-        }) as unknown as AverageRatingResult | null;
+      // Fetch the SUM and COUNT using aggregation
+      const result = await Review.findOne({
+          where: { reviewed_user_id: userId },
+          attributes: [
+              // --- CHANGE: Use SUM instead of AVG ---
+              [sequelize.fn('SUM', sequelize.col('overall_rating')), 'ratingSum'],
+              // --- Keep COUNT ---
+              [sequelize.fn('COUNT', sequelize.col('review_id')), 'reviewCount']
+          ],
+          raw: true // Get plain object
+      }) as unknown as SumRatingResult | null; // Use the new interface type assertion
 
-        const averageRating = result?.averageRating ? parseFloat(parseFloat(String(result.averageRating)).toFixed(1)) : null;
-        const reviewCount = result?.reviewCount ? parseInt(String(result.reviewCount), 10) : 0;
+      // Calculate the average manually
+      const reviewCount = result?.reviewCount ? parseInt(String(result.reviewCount), 10) : 0;
+      let averageRating: number | null = null; // Initialize as null
 
-        res.status(200).json({ averageRating: averageRating, reviewCount: reviewCount });
+      // Only calculate average if there are reviews and a sum was returned
+      if (reviewCount > 0 && result?.ratingSum != null) {
+          const ratingSum = parseFloat(String(result.ratingSum)); // Parse sum safely
+          if (!isNaN(ratingSum)) { // Check if sum is a valid number
+               // Perform division and format to one decimal place
+               averageRating = parseFloat((ratingSum / reviewCount).toFixed(1));
+          } else {
+               console.error(`Could not parse ratingSum ('${result.ratingSum}') to number for user ${userId}`);
+          }
+      }
 
-    } catch (error: any) {
-        console.error(`Error fetching average rating for user ${req.params.userId}:`, error);
-        res.status(500).json({ message: 'Failed to fetch average rating.', error: error.message });
-    }
+      console.log(`[Rating Avg Calc] User: ${userId}, Sum: ${result?.ratingSum}, Count: ${reviewCount}, Average: ${averageRating}`);
+
+      // Return the calculated average and count
+      res.status(200).json({
+          averageRating: averageRating, // Calculated average (e.g., 4.5) or null
+          reviewCount: reviewCount      // Total number of reviews (e.g., 12)
+      });
+
+  } catch (error: any) {
+      console.error(`Error fetching average rating for user ${req.params.userId}:`, error);
+      res.status(500).json({ message: 'Failed to fetch average rating.', error: error.message });
+  }
 };
 
 // GET REVIEWS RECEIVED BY A USER
