@@ -113,39 +113,36 @@ export const getAverageRatingForUser = async (req: Request, res: Response): Prom
   }
 };
 
-// GET REVIEWS RECEIVED BY A USER
+
 export const getReviewsForUser = async (req: Request, res: Response): Promise<void> => {
   try {
        const userId = parseInt(req.params.userId, 10);
        if (isNaN(userId)) { res.status(400).json({ message: 'Invalid User ID.' }); return; }
 
-       const reviews = await Review.findAll({
+       console.log(`[getReviewsForUser] Fetching reviews for reviewed_user_id: ${userId}`); // Log start
+
+       const reviews = await Review.findAll({ // <<< The Database Fetch
           where: { reviewed_user_id: userId },
           include: [
               {
                   model: User,
-                  as: 'reviewer', // <<< Ensure 'reviewer' alias is defined in Review model associations
+                  as: 'reviewer',
                   attributes: ['user_id', 'fullname', 'user_type'],
-                  include: [ // Nested include to get profile pic from Artist or Employer
-                      {
-                          model: Artist,
-                          as: 'artistProfile', // <<< Ensure 'artistProfile' alias is defined in User model associations
-                          attributes: ['profile_picture'],
-                          required: false
-                      },
-                      {
-                          model: Employer,
-                          as: 'employerProfile', // <<< Ensure 'employerProfile' alias is defined in User model associations
-                          attributes: ['profile_picture'],
-                          required: false
-                      }
+                  include: [
+                      { model: Artist, as: 'artistProfile', attributes: ['profile_picture'], required: false },
+                      { model: Employer, as: 'employerProfile', attributes: ['profile_picture'], required: false }
                   ]
               }
           ],
-          order: [['created_at', 'DESC']] // Use DB column name if underscored: true
+          order: [['created_at', 'DESC']]
        });
 
-       // Format the response to simplify reviewer info
+       // --- ADD LOG HERE ---
+       // Log the raw data received from Sequelize before any mapping
+       console.log("[DEBUG] Raw 'reviews' fetched from DB:", JSON.stringify(reviews, null, 2));
+       // --- END LOG ---
+
+       // Format the response (Keep your existing mapping logic)
        const formattedReviews = reviews.map(review => {
            const reviewJson = review.toJSON() as any;
            const reviewerProfilePic = reviewJson.reviewer?.artistProfile?.profile_picture || reviewJson.reviewer?.employerProfile?.profile_picture || null;
@@ -155,18 +152,20 @@ export const getReviewsForUser = async (req: Request, res: Response): Promise<vo
                profile_picture: reviewerProfilePic
            } : null;
 
+           // Check what properties reviewJson actually has here
+           // console.log("reviewJson inside map:", reviewJson); // Optional inner log
+
            return {
                review_id: reviewJson.review_id,
                chat_id: reviewJson.chat_id,
-               // reviewer_user_id: reviewJson.reviewer_user_id, // Probably redundant now
-               // reviewed_user_id: reviewJson.reviewed_user_id, // Probably redundant now
                overall_rating: reviewJson.overall_rating,
                specific_answers: reviewJson.specific_answers,
-               created_at: reviewJson.created_at, // Or createdAt if not underscored
-               reviewer: finalReviewer // Use the simplified reviewer object
+               created_at: reviewJson.created_at, // Is this property actually present on reviewJson?
+               reviewer: finalReviewer
            };
        });
 
+       console.log("[DEBUG] Sending formatted reviews to frontend."); // Log before sending
        res.status(200).json({ reviews: formattedReviews });
 
   } catch (error: any) {
