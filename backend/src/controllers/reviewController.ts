@@ -5,6 +5,7 @@ import Chat from '../models/Chat';
 import User from '../models/User';
 import sequelize from '../config/db';
 import { CustomRequest } from '../middleware/authMiddleware';
+import { Artist, Employer } from 'models';
 
 // Keep your existing submitReview function here
 export const submitReview = async (req: CustomRequest, res: Response): Promise<void> => {
@@ -86,28 +87,64 @@ export const getAverageRatingForUser = async (req: Request, res: Response): Prom
 /* -------------------------------------------------------------------------- */
 // GET /api/users/:userId/reviews
 export const getReviewsForUser = async (req: Request, res: Response): Promise<void> => {
-    try {
-         const userId = parseInt(req.params.userId, 10);
-         if (isNaN(userId)) {
-             res.status(400).json({ message: 'Invalid User ID.' }); return;
-         }
+  try {
+       const userId = parseInt(req.params.userId, 10);
+       if (isNaN(userId)) {
+           res.status(400).json({ message: 'Invalid User ID.' }); return;
+       }
 
-         const reviews = await Review.findAll({
-            where: { reviewed_user_id: userId },
-            include: [
-                {
-                    model: User,
-                    as: 'reviewer', // Ensure alias matches association
-                    attributes: ['user_id', 'fullname', 'profile_picture']
-                }
-            ],
-            order: [['created_at', 'DESC']]
-         });
+       const reviews = await Review.findAll({
+          where: { reviewed_user_id: userId },
+          include: [
+              {
+                  // Include the User who wrote the review
+                  model: User,
+                  as: 'reviewer', // Alias for the reviewer User model
+                  attributes: ['user_id', 'fullname', 'user_type'], // Get basic info + user_type
+                  // --- ADD NESTED INCLUDE for profile picture ---
+                  include: [
+                      {
+                          model: Artist,
+                          as: 'artistProfile', // <<< Use the alias defined in User<>Artist association
+                          attributes: ['profile_picture'],
+                          required: false // Use LEFT JOIN
+                      },
+                      {
+                          model: Employer,
+                          as: 'employerProfile', // <<< Use the alias defined in User<>Employer association
+                          attributes: ['profile_picture'],
+                          required: false // Use LEFT JOIN
+                      }
+                  ]
+                  // --- END NESTED INCLUDE ---
+              }
+          ],
+          order: [['created_at', 'DESC']]
+       });
 
-         res.status(200).json({ reviews });
+       // Optional: Clean up the response structure if needed before sending
+       const formattedReviews = reviews.map(review => {
+           const reviewJson = review.toJSON() as any; // Type assertion needed for nested includes sometimes
+           // Combine profile pictures into a single field for easier frontend use
+           const reviewerProfilePic = reviewJson.reviewer?.artistProfile?.profile_picture || reviewJson.reviewer?.employerProfile?.profile_picture || null;
+           // Return a cleaner reviewer object
+           const finalReviewer = reviewJson.reviewer ? {
+               user_id: reviewJson.reviewer.user_id,
+               fullname: reviewJson.reviewer.fullname,
+               profile_picture: reviewerProfilePic
+           } : null;
 
-    } catch (error: any) {
-         console.error(`Error fetching reviews for user ${req.params.userId}:`, error);
-         res.status(500).json({ message: 'Failed to fetch reviews.', error: error.message });
-    }
+           // Return the review with the simplified reviewer
+           return {
+               ...reviewJson, // Spread existing review fields (review_id, rating, comment, etc.)
+               reviewer: finalReviewer // Overwrite with the simplified reviewer object
+           };
+       });
+
+       res.status(200).json({ reviews: formattedReviews }); // Send the formatted reviews
+
+  } catch (error: any) {
+       console.error(`Error fetching reviews for user ${req.params.userId}:`, error);
+       res.status(500).json({ message: 'Failed to fetch reviews.', error: error.message });
+  }
 };
