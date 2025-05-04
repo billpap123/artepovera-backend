@@ -114,62 +114,80 @@ export const getAverageRatingForUser = async (req: Request, res: Response): Prom
 };
 
 
+
+// GET REVIEWS RECEIVED BY A USER (with detailed mapping logs)
 export const getReviewsForUser = async (req: Request, res: Response): Promise<void> => {
   try {
-      const userId = parseInt(req.params.userId, 10);
-      if (isNaN(userId)) { res.status(400).json({ message: 'Invalid User ID.' }); return; }
+       const userId = parseInt(req.params.userId, 10);
+       if (isNaN(userId)) { res.status(400).json({ message: 'Invalid User ID.' }); return; }
 
-      console.log(`[getReviewsForUser - DEBUG] Fetching reviews WITH includes for reviewed_user_id: ${userId}`);
+       console.log(`[getReviewsForUser] Fetching reviews WITH includes for reviewed_user_id: ${userId}`);
 
-      const reviews = await Review.findAll({
+       const reviews = await Review.findAll({
           where: { reviewed_user_id: userId },
-          include: [ // <<< KEEPING THE INCLUDE
+          include: [
               {
                   model: User,
-                  as: 'reviewer',
+                  as: 'reviewer', // Alias for the reviewer User model
                   attributes: ['user_id', 'fullname', 'user_type'],
-                  include: [
+                  include: [ // Nested include for profile pic
                       { model: Artist, as: 'artistProfile', attributes: ['profile_picture'], required: false },
                       { model: Employer, as: 'employerProfile', attributes: ['profile_picture'], required: false }
                   ]
               }
           ],
           order: [['created_at', 'DESC']]
-      });
+       });
 
-      // --- Log the raw result WITH includes ---
-      console.log("[DEBUG] Raw 'reviews' fetched WITH includes:", JSON.stringify(reviews, null, 2));
-      // --- END LOG ---
+       console.log(`[getReviewsForUser] Found ${reviews.length} reviews.`);
 
-      // Inside getReviewsForUser -> formattedReviews.map(...)
- const formattedReviews = reviews.map(review => {
-  const reviewJson = review.toJSON() as any;
-  const reviewerProfilePic = reviewJson.reviewer?.artistProfile?.profile_picture || reviewJson.reviewer?.employerProfile?.profile_picture || null;
-  const finalReviewer = reviewJson.reviewer ? {
-      user_id: reviewJson.reviewer.user_id,
-      fullname: reviewJson.reviewer.fullname,
-      profile_picture: reviewerProfilePic
-  } : null;
+       // Format the response to simplify reviewer info
+       const formattedReviews = reviews.map((review, index) => {
+           console.log(`\n[MAP DEBUG ${index+1}] Processing review ID: ${review.review_id}`); // Log start of map item
 
-  return {
-      review_id: reviewJson.review_id,
-      chat_id: reviewJson.chat_id,
-      overall_rating: reviewJson.overall_rating,
-      specific_answers: reviewJson.specific_answers,
-      // --- FIX: Access camelCase, return snake_case ---
-      created_at: reviewJson.createdAt, // <<< Access correct source field
-      // --- END FIX ---
-      reviewer: finalReviewer
-  };
-});
+           // Use .get() for plain object which often handles associations better than toJSON()
+           const reviewData = review.get({ plain: true }) as any;
+           console.log("[MAP DEBUG] review.get({ plain: true }) output:", JSON.stringify(reviewData, null, 2)); // Log the plain object
 
-      // --- Send the RAW result directly ---
-      console.log("[DEBUG] Sending RAW reviews array to frontend.");
-      res.status(200).json({ reviews }); // <<< SEND UNFORMATTED reviews
-      // --- END SEND RAW ---
+           const reviewerData = reviewData.reviewer; // Access the nested reviewer object
+           console.log("[MAP DEBUG] Reviewer data object:", JSON.stringify(reviewerData, null, 2));
+
+           let reviewerProfilePic: string | null = null;
+           if (reviewerData) {
+                // Try to get pic from either nested profile
+                reviewerProfilePic = reviewerData.artistProfile?.profile_picture || reviewerData.employerProfile?.profile_picture || null;
+                console.log("[MAP DEBUG] Extracted reviewerProfilePic:", reviewerProfilePic);
+           } else {
+               console.log("[MAP DEBUG] No reviewer data found in included object.");
+           }
+
+           // Create the simplified reviewer object
+           const finalReviewer = reviewerData ? {
+               user_id: reviewerData.user_id,
+               fullname: reviewerData.fullname,
+               profile_picture: reviewerProfilePic // Assign the extracted pic here
+           } : null;
+           console.log("[MAP DEBUG] Final reviewer object created:", JSON.stringify(finalReviewer, null, 2));
+
+           // Construct the final object for this review
+           const formattedReview = {
+               review_id: reviewData.review_id,
+               chat_id: reviewData.chat_id,
+               overall_rating: reviewData.overall_rating,
+               specific_answers: reviewData.specific_answers,
+               // Access correct timestamp field (assuming underscored:true in Review model)
+               created_at: reviewData.created_at,
+               reviewer: finalReviewer
+           };
+            console.log("[MAP DEBUG] Final formatted review object:", JSON.stringify(formattedReview, null, 2));
+            return formattedReview;
+       });
+
+       console.log("[getReviewsForUser] Sending formatted reviews to frontend.");
+       res.status(200).json({ reviews: formattedReviews });
 
   } catch (error: any) {
-      console.error(`Error fetching reviews for user ${req.params.userId}:`, error);
-      res.status(500).json({ message: 'Failed to fetch reviews.', error: error.message });
+       console.error(`Error fetching reviews for user ${req.params.userId}:`, error);
+       res.status(500).json({ message: 'Failed to fetch reviews.', error: error.message });
   }
 };
