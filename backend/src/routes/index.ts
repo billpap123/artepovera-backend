@@ -96,9 +96,9 @@ router.put('/chats/:chat_id/rating-status', authenticate, chatController.updateR
 
 
 router.post('/reviews', authenticate, reviewController.submitReview);
-// Add GET routes later for fetching reviews/ratings
-// router.get('/users/:userId/reviews', authenticate, reviewController.getReviewsForUser);
-// router.get('/users/:userId/average-rating', authenticate, reviewController.getAverageRatingForUser);
+// --- ADD THESE ROUTES ---
+router.get('/users/:userId/average-rating', reviewController.getAverageRatingForUser); // Publicly viewable? Add authenticate if needed
+router.get('/users/:userId/reviews', reviewController.getReviewsForUser); // Publicly viewable? Add authenticate if needed
 
 // --- Location routes ---
 router.get('/locations', getLocations); // Public maybe? Or add authenticate
