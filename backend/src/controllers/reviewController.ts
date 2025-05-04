@@ -114,30 +114,47 @@ export const getAverageRatingForUser = async (req: Request, res: Response): Prom
 };
 
 
-// TEMPORARY simplified version for debugging getReviewsForUser
 export const getReviewsForUser = async (req: Request, res: Response): Promise<void> => {
   try {
-       const userId = parseInt(req.params.userId, 10);
-       if (isNaN(userId)) { res.status(400).json({ message: 'Invalid User ID.' }); return; }
+      const userId = parseInt(req.params.userId, 10);
+      if (isNaN(userId)) { res.status(400).json({ message: 'Invalid User ID.' }); return; }
 
-       console.log(`[DEBUG] Fetching raw reviews for reviewed_user_id: ${userId}`);
+      console.log(`[getReviewsForUser - DEBUG] Fetching reviews WITH includes for reviewed_user_id: ${userId}`);
 
-       // Fetch reviews WITHOUT includes and WITHOUT formatting map for now
-       const reviews = await Review.findAll({
+      const reviews = await Review.findAll({
           where: { reviewed_user_id: userId },
-          // NO 'include' for this test
-          // NO explicit 'attributes' (should get all model attributes including timestamps)
-          order: [['created_at', 'DESC']] // Still try to order
-       });
+          include: [ // <<< KEEPING THE INCLUDE
+              {
+                  model: User,
+                  as: 'reviewer',
+                  attributes: ['user_id', 'fullname', 'user_type'],
+                  include: [
+                      { model: Artist, as: 'artistProfile', attributes: ['profile_picture'], required: false },
+                      { model: Employer, as: 'employerProfile', attributes: ['profile_picture'], required: false }
+                  ]
+              }
+          ],
+          order: [['created_at', 'DESC']]
+      });
 
-       // Log the raw data fetched by Sequelize on the backend
-       console.log("[DEBUG] Raw 'reviews' fetched from DB:", JSON.stringify(reviews, null, 2));
+      // --- Log the raw result WITH includes ---
+      console.log("[DEBUG] Raw 'reviews' fetched WITH includes:", JSON.stringify(reviews, null, 2));
+      // --- END LOG ---
 
-       // Send the raw data directly
-       res.status(200).json({ reviews }); // Send the potentially unformatted array
+      // --- Temporarily REMOVE the formattedReviews map ---
+      // const formattedReviews = reviews.map(review => {
+      //    // ... formatting logic ...
+      // });
+      // res.status(200).json({ reviews: formattedReviews });
+      // --- END REMOVAL ---
+
+      // --- Send the RAW result directly ---
+      console.log("[DEBUG] Sending RAW reviews array to frontend.");
+      res.status(200).json({ reviews }); // <<< SEND UNFORMATTED reviews
+      // --- END SEND RAW ---
 
   } catch (error: any) {
-       console.error(`Error fetching raw reviews for user ${req.params.userId}:`, error);
-       res.status(500).json({ message: 'Failed to fetch reviews.', error: error.message });
+      console.error(`Error fetching reviews for user ${req.params.userId}:`, error);
+      res.status(500).json({ message: 'Failed to fetch reviews.', error: error.message });
   }
 };
