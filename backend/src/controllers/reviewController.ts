@@ -5,8 +5,9 @@ import Chat from '../models/Chat';
 import User from '../models/User';
 import sequelize from '../config/db';
 import { CustomRequest } from '../middleware/authMiddleware';
-import { Artist, Employer } from 'models';
-
+// Near the top with other imports
+import Artist from '../models/Artist';     // Adjust path if needed
+import Employer from '../models/Employer'; // Adjust path if needed
 // Keep your existing submitReview function here
 export const submitReview = async (req: CustomRequest, res: Response): Promise<void> => {
      try {
