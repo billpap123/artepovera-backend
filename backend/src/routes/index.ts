@@ -91,6 +91,9 @@ router.post('/chats', authenticate, chatController.createChat);
 router.post('/chats/send', authenticate, chatController.sendMessage);
 router.get('/chats/:chat_id/messages', authenticate, chatController.getChatHistory);
 router.get('/chats/user/:user_id', authenticate, chatController.fetchMessages);
+router.get('/chats/:chat_id/rating-status', authenticate, chatController.getRatingPromptStatus);
+router.put('/chats/:chat_id/rating-status', authenticate, chatController.updateRatingPromptStatus);
+
 
 router.post('/reviews', authenticate, reviewController.submitReview);
 // Add GET routes later for fetching reviews/ratings
