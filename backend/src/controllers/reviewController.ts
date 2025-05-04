@@ -5,9 +5,13 @@ import Chat from '../models/Chat';
 import User from '../models/User';
 import sequelize from '../config/db';
 import { CustomRequest } from '../middleware/authMiddleware';
-// Near the top with other imports
-import Artist from '../models/Artist';     // Adjust path if needed
-import Employer from '../models/Employer'; // Adjust path if needed
+import { Sequelize } from 'sequelize'; // Keep needed imports
+// --- FIX: Correct model imports ---
+import Artist from '../models/Artist';
+import Employer from '../models/Employer';
+// --- END FIX ---
+
+
 // Keep your existing submitReview function here
 export const submitReview = async (req: CustomRequest, res: Response): Promise<void> => {
      try {
@@ -36,7 +40,11 @@ export const submitReview = async (req: CustomRequest, res: Response): Promise<v
              console.log(`[Chat ${chatId}] User ${reviewerUserId} rating status set to completed.`);
         } catch (statusError) { console.error(`[Chat ${chatId}] Failed to update rating status after review submission:`, statusError); }
         res.status(201).json({ message: 'Review submitted successfully!', review: newReview });
-    } catch (error: any) { /* ... existing error handling ... */ }
+    } catch (error: any) {
+         console.error("❌ Error submitting review:", error);
+         if (error.name === 'SequelizeValidationError') { res.status(400).json({ message: 'Validation failed.', errors: error.errors?.map((e: any) => e.message) }); }
+         else { res.status(500).json({ message: 'Failed to submit review.', error: error.message }); }
+    }
 };
 
 
@@ -46,36 +54,25 @@ interface AverageRatingResult {
     reviewCount: number | string;
 }
 
-/* -------------------------------------------------------------------------- */
-/* GET AVERAGE RATING FOR A USER                                              */
-/* -------------------------------------------------------------------------- */
-// GET /api/users/:userId/average-rating
+// GET AVERAGE RATING FOR A USER
 export const getAverageRatingForUser = async (req: Request, res: Response): Promise<void> => {
     try {
         const userId = parseInt(req.params.userId, 10);
-        if (isNaN(userId)) {
-            res.status(400).json({ message: 'Invalid User ID.' }); return;
-        }
+        if (isNaN(userId)) { res.status(400).json({ message: 'Invalid User ID.' }); return; }
 
-        // --- FIX: Use double type assertion ---
         const result = await Review.findOne({
             where: { reviewed_user_id: userId },
             attributes: [
                 [sequelize.fn('AVG', sequelize.col('overall_rating')), 'averageRating'],
                 [sequelize.fn('COUNT', sequelize.col('review_id')), 'reviewCount']
             ],
-            raw: true // Get plain object
-        }) as unknown as AverageRatingResult | null; // <<< CORRECTED TYPE ASSERTION
-        // --- End Fix ---
-
+            raw: true
+        }) as unknown as AverageRatingResult | null;
 
         const averageRating = result?.averageRating ? parseFloat(parseFloat(String(result.averageRating)).toFixed(1)) : null;
         const reviewCount = result?.reviewCount ? parseInt(String(result.reviewCount), 10) : 0;
 
-        res.status(200).json({
-            averageRating: averageRating,
-            reviewCount: reviewCount
-        });
+        res.status(200).json({ averageRating: averageRating, reviewCount: reviewCount });
 
     } catch (error: any) {
         console.error(`Error fetching average rating for user ${req.params.userId}:`, error);
@@ -83,66 +80,61 @@ export const getAverageRatingForUser = async (req: Request, res: Response): Prom
     }
 };
 
-/* -------------------------------------------------------------------------- */
-/* GET REVIEWS RECEIVED BY A USER                                             */
-/* -------------------------------------------------------------------------- */
-// GET /api/users/:userId/reviews
+// GET REVIEWS RECEIVED BY A USER
 export const getReviewsForUser = async (req: Request, res: Response): Promise<void> => {
   try {
        const userId = parseInt(req.params.userId, 10);
-       if (isNaN(userId)) {
-           res.status(400).json({ message: 'Invalid User ID.' }); return;
-       }
+       if (isNaN(userId)) { res.status(400).json({ message: 'Invalid User ID.' }); return; }
 
        const reviews = await Review.findAll({
           where: { reviewed_user_id: userId },
           include: [
               {
-                  // Include the User who wrote the review
                   model: User,
-                  as: 'reviewer', // Alias for the reviewer User model
-                  attributes: ['user_id', 'fullname', 'user_type'], // Get basic info + user_type
-                  // --- ADD NESTED INCLUDE for profile picture ---
-                  include: [
+                  as: 'reviewer', // <<< Ensure 'reviewer' alias is defined in Review model associations
+                  attributes: ['user_id', 'fullname', 'user_type'],
+                  include: [ // Nested include to get profile pic from Artist or Employer
                       {
                           model: Artist,
-                          as: 'artistProfile', // <<< Use the alias defined in User<>Artist association
+                          as: 'artistProfile', // <<< Ensure 'artistProfile' alias is defined in User model associations
                           attributes: ['profile_picture'],
-                          required: false // Use LEFT JOIN
+                          required: false
                       },
                       {
                           model: Employer,
-                          as: 'employerProfile', // <<< Use the alias defined in User<>Employer association
+                          as: 'employerProfile', // <<< Ensure 'employerProfile' alias is defined in User model associations
                           attributes: ['profile_picture'],
-                          required: false // Use LEFT JOIN
+                          required: false
                       }
                   ]
-                  // --- END NESTED INCLUDE ---
               }
           ],
-          order: [['created_at', 'DESC']]
+          order: [['created_at', 'DESC']] // Use DB column name if underscored: true
        });
 
-       // Optional: Clean up the response structure if needed before sending
+       // Format the response to simplify reviewer info
        const formattedReviews = reviews.map(review => {
-           const reviewJson = review.toJSON() as any; // Type assertion needed for nested includes sometimes
-           // Combine profile pictures into a single field for easier frontend use
+           const reviewJson = review.toJSON() as any;
            const reviewerProfilePic = reviewJson.reviewer?.artistProfile?.profile_picture || reviewJson.reviewer?.employerProfile?.profile_picture || null;
-           // Return a cleaner reviewer object
            const finalReviewer = reviewJson.reviewer ? {
                user_id: reviewJson.reviewer.user_id,
                fullname: reviewJson.reviewer.fullname,
                profile_picture: reviewerProfilePic
            } : null;
 
-           // Return the review with the simplified reviewer
            return {
-               ...reviewJson, // Spread existing review fields (review_id, rating, comment, etc.)
-               reviewer: finalReviewer // Overwrite with the simplified reviewer object
+               review_id: reviewJson.review_id,
+               chat_id: reviewJson.chat_id,
+               // reviewer_user_id: reviewJson.reviewer_user_id, // Probably redundant now
+               // reviewed_user_id: reviewJson.reviewed_user_id, // Probably redundant now
+               overall_rating: reviewJson.overall_rating,
+               specific_answers: reviewJson.specific_answers,
+               created_at: reviewJson.created_at, // Or createdAt if not underscored
+               reviewer: finalReviewer // Use the simplified reviewer object
            };
        });
 
-       res.status(200).json({ reviews: formattedReviews }); // Send the formatted reviews
+       res.status(200).json({ reviews: formattedReviews });
 
   } catch (error: any) {
        console.error(`Error fetching reviews for user ${req.params.userId}:`, error);
