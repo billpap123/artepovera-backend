@@ -52,8 +52,7 @@ export const toggleLike = async (req: CustomRequest, res: Response): Promise<voi
       const newLike = await Like.create({ user_id: loggedInUserId, liked_user_id: likedUserId });
 
       // Notify the liked user
-      const loggedInUser = await User.findByPk(loggedInUserId, { attributes: ['fullname'] });
-      // Fetch other user for chat check / notification message
+      const loggedInUser = await User.findByPk(loggedInUserId, { attributes: ['fullname', 'user_type'] }); // <<< ADD 'user_type'      // Fetch other user for chat check / notification message
       const otherUserRow = await User.findByPk(likedUserId, { attributes: ['user_id', 'user_type', 'fullname'] });
 
 
