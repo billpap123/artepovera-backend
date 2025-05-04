@@ -110,8 +110,94 @@ export const updateArtistProfile = async (req: CustomRequest, res: Response): Pr
     res.status(500).json({ message: 'Internal server error', error: error.message });
   }
 };
+// --- Helper to attempt extracting public_id from Cloudinary URL ---
+// NOTE: Storing the public_id from the upload response in your database
+// is generally more reliable than parsing the URL.
+function extractPublicIdFromUrl(imageUrl: string | null | undefined): string | null {
+  if (!imageUrl) return null;
+  try {
+      const url = new URL(imageUrl);
+      // Example path: /cloud_name/image/upload/v12345/folder/public_id.jpg
+      // Try to find 'upload/' and get path parts after it
+      const pathSegments = url.pathname.split('/');
+      const uploadIndex = pathSegments.indexOf('upload');
+      if (uploadIndex === -1 || uploadIndex + 1 >= pathSegments.length) {
+          console.warn(`Could not find '/upload/' segment in Cloudinary URL: ${imageUrl}`);
+          return null;
+      }
+      // Look for a version segment (v followed by numbers) after 'upload'
+      const versionIndex = pathSegments.findIndex((part, index) => index > uploadIndex && /^v\d+$/.test(part));
 
-// --- Other Controller Functions (Unchanged unless they need the Cloudinary URL) ---
+      let publicIdWithExtension;
+      if (versionIndex > -1 && versionIndex < pathSegments.length - 1) {
+           // Assumes public_id is everything after version
+           publicIdWithExtension = pathSegments.slice(versionIndex + 1).join('/');
+      } else {
+           // Fallback: Assume everything after /upload/ is folder/public_id.ext
+           // This might fail if transformations are in the URL before version/public_id
+           publicIdWithExtension = pathSegments.slice(uploadIndex + 1).join('/');
+      }
+
+      const lastDotIndex = publicIdWithExtension.lastIndexOf('.');
+      if (lastDotIndex > -1) {
+          return publicIdWithExtension.substring(0, lastDotIndex); // Return path without extension
+      }
+      // Handle cases without extension (less common for image uploads)
+      return publicIdWithExtension || null;
+
+  } catch (e) {
+      console.error("Error parsing Cloudinary URL to extract public_id:", e);
+      return null;
+  }
+}
+// --- End Helper ---
+
+
+// --- ADD THIS FUNCTION ---
+export const deleteArtistProfilePicture = async (req: CustomRequest, res: Response): Promise<void> => {
+  const userId = req.user?.id;
+  if (!userId) {
+    res.status(401).json({ message: 'Unauthorized' });
+    return;
+  }
+
+  try {
+    const artist = await Artist.findOne({ where: { user_id: userId } });
+    if (!artist || !artist.profile_picture) {
+      res.status(404).json({ message: 'Artist profile or picture not found.' });
+      return;
+    }
+
+    const oldImageUrl = artist.profile_picture;
+    // --- Optional: Delete from Cloudinary ---
+    // IMPORTANT: Best to store public_id in DB. Parsing URL is less reliable.
+    const publicIdToDelete = extractPublicIdFromUrl(oldImageUrl); // Use the helper function
+    if (publicIdToDelete) {
+       try {
+           console.log(`[DELETE] Attempting to delete Cloudinary image: ${publicIdToDelete}`);
+           await cloudinary.uploader.destroy(publicIdToDelete);
+           console.log(`[DELETE] Cloudinary image ${publicIdToDelete} deleted successfully.`);
+       } catch (cloudinaryError: any) {
+           // Log error but proceed with DB update - maybe image was already deleted?
+           console.error(`[WARN] Failed to delete Cloudinary image ${publicIdToDelete}:`, cloudinaryError.message);
+       }
+    } else {
+         console.warn(`[DELETE] Could not determine public_id to delete Cloudinary image. URL: ${oldImageUrl}`);
+    }
+    // --- End Optional ---
+
+    // Update DB: Set profile picture to null
+    artist.profile_picture = null; // Set field to null
+    await artist.save();
+    console.log(`[UPDATE] Profile picture removed for artist user: ${userId}`);
+
+    res.status(200).json({ message: 'Profile picture deleted successfully.', profile_picture: null }); // Return null URL
+
+  } catch (error: any) {
+    console.error('Error deleting artist profile picture:', error);
+    res.status(500).json({ message: 'Internal server error', error: error.message });
+  }
+};
 
 export const getArtistById = async (req: Request, res: Response, next: NextFunction) => {
   try {

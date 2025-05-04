@@ -56,6 +56,8 @@ router.post('/artists/profile', authenticate, upload.single('profile_picture'), 
 router.get('/artists/:id', authenticate, artistController.getArtistById);
 router.delete('/artists/:id', authenticate, artistController.deleteArtist);
 router.get('/artists', authenticate, artistController.getArtistsWithLocation); // Route for getting artists with location
+router.delete('/profile/picture', authenticate, artistController.deleteArtistProfilePicture);
+
 
 
 // --- Employer-specific routes (protected) ---
