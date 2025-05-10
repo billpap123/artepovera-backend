@@ -6,7 +6,7 @@ let sequelize: Sequelize;
 if (process.env.DATABASE_URL) {
   sequelize = new Sequelize(process.env.DATABASE_URL, {
     dialect: 'mysql',
-    logging: console.log,
+    logging: console.log, // This will log all SQL queries Sequelize runs
   });
 } else {
   // 2) Otherwise, fall back to local environment vars (dev).
@@ -18,7 +18,7 @@ if (process.env.DATABASE_URL) {
       host: process.env.DB_HOST || '127.0.0.1',
       dialect: 'mysql',
       port: process.env.DB_PORT ? Number(process.env.DB_PORT) : 3306,
-      logging: console.log,
+      logging: console.log, // Also logs queries locally
     }
   );
 }

@@ -1,12 +1,11 @@
 // src/server.ts
-// Imports needed for Express, Sequelize, Routes, Cors, Helmet, Dotenv, Cloudinary
 import express from 'express';
 import sequelize from './config/db';
 import routes from './routes/index'; // Imports the configured router
 import dotenv from 'dotenv';
 import cors from 'cors';
-// REMOVED: import multer, { FileFilterCallback } from 'multer'; // Multer is now configured elsewhere
-import path from 'path'; // Keep path if needed elsewhere (e.g., by dependencies)
+// REMOVED: import multer, { FileFilterCallback } from 'multer'; // Multer is now configured in middleware/multerConfig.ts
+import path from 'path'; // Keep path if it might be used by a dependency or other part of your app
 import helmet from 'helmet';
 import { v2 as cloudinary } from 'cloudinary'; // Import Cloudinary SDK
 
@@ -14,18 +13,17 @@ import { v2 as cloudinary } from 'cloudinary'; // Import Cloudinary SDK
 dotenv.config();
 
 // Import models and associations (Sequelize relationships)
-import './models/associations'; // Ensure this path is correct
+// This line ensures all models are registered and associations are set up.
+import './models/associations'; // Ensure this path is correct and it imports all models and then sets up associations
 
 // --- Cloudinary Configuration ---
 // Ensure Cloudinary is configured early
 cloudinary.config({
-  // These names MUST match the environment variables you set in Render
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
   secure: true, // Use https URLs
 });
-// Log confirmation (avoid logging the secret!)
 console.log('[Cloudinary] SDK Configured. Cloud Name:', process.env.CLOUDINARY_CLOUD_NAME ? 'OK' : 'MISSING!');
 // --- End Cloudinary Configuration ---
 
@@ -36,12 +34,13 @@ const app = express();
 // --------------------------------------
 
 // --------------------------------------
-// Sync database models
+// MODIFIED: Database Connection Check (removed sync)
 // --------------------------------------
 sequelize
-  .sync({ alter: true }) // Consider changing alter: true to false in production
-  .then(() => console.log('Database & tables synced successfully!'))
-  .catch((error) => console.error('Error syncing database:', error.message));
+  .authenticate()
+  .then(() => console.log('Database connection established successfully.'))
+  .catch((error) => console.error('Unable to connect to the database:', error.message));
+// REMOVED: sequelize.sync({ alter: true }) block
 
 // --------------------------------------
 // Helmet configuration for security
@@ -65,15 +64,20 @@ app.use(
 // CORS CONFIGURATION
 // --------------------------------------
 const allowedOrigins = [
-  'http://localhost:3000', // For local dev
-  'https://artepovera2.vercel.app', // Your main frontend URL
-  // Add any other Vercel preview URLs if needed
+  'http://localhost:3000',
+  'https://artepovera2.vercel.app',
+  // Add any other specific Vercel preview URLs if needed
+  // Or for more flexible preview URL handling:
+  // /https:\/\/artepovera2-.*-vasilis-projects-01b75e68\.vercel\.app/ // Regex example
 ];
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
+      // Allow requests with no origin (like mobile apps or curl) OR from allowed origins
+      // For regex, you'd need a different check:
+      // if (!origin || allowedOrigins.some(pattern => typeof pattern === 'string' ? pattern === origin : pattern.test(origin))) {
+      if (!origin || allowedOrigins.includes(origin)) { // Simple check for now
         callback(null, true);
       } else {
         console.warn(`[CORS] Blocked origin: ${origin}`);
@@ -89,41 +93,34 @@ app.use(
 app.options('*', cors());
 
 // --------------------------------------
-// REMOVED: MULTER SETUP (Moved to middleware/multerConfig.ts)
+// REMOVED: MULTER SETUP (This now lives in src/middleware/multerConfig.ts)
 // --------------------------------------
-// REMOVED: const storage = multer.memoryStorage();
-// REMOVED: const fileFilter = (req: any, file: any, cb: FileFilterCallback) => { ... };
-// REMOVED: const upload = multer({ ... });
-// --- End Removed Multer Setup ---
 
 // --------------------------------------
 // Parse JSON and URL-encoded bodies
 // --------------------------------------
-// Apply these *before* your routes
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // --------------------------------------
 // USE YOUR MAIN API ROUTES
 // --------------------------------------
-// The 'routes' import already contains the router instance with middleware applied
 app.use('/api', routes);
 console.log('[SETUP] API routes mounted under /api');
 
 // --------------------------------------
 // ERROR HANDLING
 // --------------------------------------
-// Apply this *after* your routes
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error("[ERROR] Unhandled error:", err.stack); // Log the full stack
+  console.error("[ERROR] Unhandled error:", err.stack);
   res.status(err.status || 500).json({
        error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message,
-       ...(process.env.NODE_ENV !== 'production' && { stack: err.stack }) // Optionally include stack in dev
+       ...(process.env.NODE_ENV !== 'production' && { stack: err.stack })
    });
 });
 
 // --------------------------------------
-// REMOVED: export { upload }; // Export was moved to middleware/multerConfig.ts
+// REMOVED: export { upload }; // This was moved to src/middleware/multerConfig.ts
 // --------------------------------------
 
 // --------------------------------------
@@ -132,7 +129,6 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 const PORT = process.env.PORT || 5001;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
-  // REMOVED logs related to the old uploadDirectory
 });
 
-// REMOVED: export { upload }; // Second instance of removed export
+// REMOVED: Redundant export { upload };
