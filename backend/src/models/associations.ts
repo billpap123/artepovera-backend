@@ -1,4 +1,3 @@
-// src/models/associations.ts
 import User from './User';
 import Artist from './Artist';
 import Employer from './Employer';
@@ -6,68 +5,40 @@ import Chat from './Chat';
 import Message from './Message';
 import JobPosting from './JobPosting';
 import Review from './Review';
-
-// 1) User <-> Artist Profile
+// 1) Artist <-> User
 User.hasOne(Artist, { foreignKey: 'user_id', as: 'artistProfile' });
-Artist.belongsTo(User, { foreignKey: 'user_id', as: 'user' }); // Use 'user' as alias
+Artist.belongsTo(User, { foreignKey: 'user_id', as: 'artistUserDetails' });
 
-// 2) User <-> Employer Profile
+// 2) Employer <-> User
 User.hasOne(Employer, { foreignKey: 'user_id', as: 'employerProfile' });
-Employer.belongsTo(User, { foreignKey: 'user_id', as: 'user' }); // Use 'user' as alias
+Employer.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+// Chat -> belongsTo(User) for the artist side
+Chat.belongsTo(User, { foreignKey: 'artist_user_id', as: 'artistUser' });
+// Chat -> belongsTo(User) for the employer side
+Chat.belongsTo(User, { foreignKey: 'employer_user_id', as: 'employerUser' });
 
-// 3) Chat <-> Artist & Chat <-> Employer
-// The Chat model uses attributes 'artist_user_id' and 'employer_user_id'
-// which map to DB columns 'artist_id' and 'employer_id' respectively.
-// These DB columns are FKs to the 'artists' and 'employers' tables' primary keys.
-
-Chat.belongsTo(Artist, {
-  foreignKey: 'artist_user_id',    // This is the attribute name in the Chat model
-  targetKey: 'artist_id',         // This is the PK attribute name in the Artist model
-  as: 'chatArtistProfile'         // Alias used in Chat.findAll includes for the Artist
-});
-Artist.hasMany(Chat, {
-  foreignKey: 'artist_user_id',    // Attribute name in Chat model
-  sourceKey: 'artist_id'          // PK attribute name in Artist model
-  // as: 'artistChats' // Optional alias if you need to fetch chats from an Artist instance
-});
-
-Chat.belongsTo(Employer, {
-  foreignKey: 'employer_user_id',  // Attribute name in Chat model
-  targetKey: 'employer_id',      // PK attribute name in Employer model
-  as: 'chatEmployerProfile'      // Alias used in Chat.findAll includes for the Employer
-});
-Employer.hasMany(Chat, {
-  foreignKey: 'employer_user_id',  // Attribute name in Chat model
-  sourceKey: 'employer_id'        // PK attribute name in Employer model
-  // as: 'employerChats' // Optional alias if you need to fetch chats from an Employer instance
-});
-
-// Note: The direct User.hasMany(Chat, ...) associations are removed
-// because Chat is linked through Artist/Employer profiles.
-// Fetching chats FOR a user is now correctly handled by the logic in fetchMessages.
-
+// Optionally, if you want reverse associations:
+User.hasMany(Chat, { foreignKey: 'artist_user_id', as: 'chatsAsArtist' });
+User.hasMany(Chat, { foreignKey: 'employer_user_id', as: 'chatsAsEmployer' });
 // 4) Chat <-> Message
 Chat.hasMany(Message, { foreignKey: 'chat_id', as: 'chatMessages' });
-Message.belongsTo(Chat, { foreignKey: 'chat_id', as: 'chat' }); // Corrected alias for symmetry
+Message.belongsTo(Chat, { foreignKey: 'chat_id', as: 'chatMessages' });
 
-// 5) Message <-> User (for sender and receiver)
+// 5) Message <-> User
 Message.belongsTo(User, { foreignKey: 'sender_id', as: 'messageSender' });
 Message.belongsTo(User, { foreignKey: 'receiver_id', as: 'messageReceiver' });
-// Optional reverse associations:
-// User.hasMany(Message, { foreignKey: 'sender_id', as: 'sentMessages' });
-// User.hasMany(Message, { foreignKey: 'receiver_id', as: 'receivedMessages' });
 
-// 6) JobPosting <-> Employer
+// JobPosting <-> Employer
 JobPosting.belongsTo(Employer, {
+  as: 'employer',
   foreignKey: 'employer_id',
-  as: 'employer' // This alias is used in your jobPostingController
 });
 Employer.hasMany(JobPosting, {
+  as: 'jobPostings',
   foreignKey: 'employer_id',
-  as: 'jobPostings'
 });
-
-// 7) Review <-> Chat & Review <-> User
+// src/models/associations.ts
+// ... other associations ...
 Review.belongsTo(Chat, { foreignKey: 'chat_id', as: 'chat' });
 Chat.hasMany(Review, { foreignKey: 'chat_id', as: 'reviews' });
 
@@ -76,9 +47,3 @@ User.hasMany(Review, { foreignKey: 'reviewer_user_id', as: 'reviewsGiven' });
 
 Review.belongsTo(User, { foreignKey: 'reviewed_user_id', as: 'reviewed' });
 User.hasMany(Review, { foreignKey: 'reviewed_user_id', as: 'reviewsReceived' });
-
-
-// Make sure this file is imported ONCE in your application,
-// typically in your main server file (server.ts) or database config (db.ts),
-// after all models have been defined and imported.
-// e.g., import './models/associations';
