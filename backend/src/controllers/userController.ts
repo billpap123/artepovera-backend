@@ -25,6 +25,9 @@ interface CustomRequest<T = any> extends Request {
 // ─────────────────────────────────────────────────────────────
 // TOGGLE A LIKE ON A USER
 // ─────────────────────────────────────────────────────────────
+// src/controllers/userController.ts
+// ... (keep all other imports: Request, Response, User, Artist, Employer, Like, Notification, Op, Chat, sequelize, Sequelize, CustomRequest)
+
 export const toggleLike = async (req: CustomRequest, res: Response): Promise<void> => {
     const loggedInUserId = req.user?.id;
     const likedUserId = parseInt(req.params.userId, 10);
@@ -33,105 +36,114 @@ export const toggleLike = async (req: CustomRequest, res: Response): Promise<voi
         res.status(400).json({ error: 'Invalid request. User IDs are required.' });
         return;
     }
-     if (loggedInUserId === likedUserId) {
-          res.status(400).json({ error: 'Users cannot like themselves.' });
-          return;
-     }
+    if (loggedInUserId === likedUserId) {
+        res.status(400).json({ error: 'Users cannot like themselves.' });
+        return;
+    }
 
     try {
-      const existingLike = await Like.findOne({
-        where: { user_id: loggedInUserId, liked_user_id: likedUserId },
-      });
+        const existingLike = await Like.findOne({
+            where: { user_id: loggedInUserId, liked_user_id: likedUserId },
+        });
 
-      if (existingLike) {
-        await existingLike.destroy();
-        return void res.status(200).json({ message: 'Like removed', liked: false });
-      }
+        if (existingLike) {
+            await existingLike.destroy();
+            return void res.status(200).json({ message: 'Like removed', liked: false });
+        }
 
-      // Create the like
-      const newLike = await Like.create({ user_id: loggedInUserId, liked_user_id: likedUserId });
+        const newLike = await Like.create({ user_id: loggedInUserId, liked_user_id: likedUserId });
 
-      // Notify the liked user
-      const loggedInUser = await User.findByPk(loggedInUserId, { attributes: ['fullname', 'user_type'] }); // <<< ADD 'user_type'      // Fetch other user for chat check / notification message
-      const otherUserRow = await User.findByPk(likedUserId, { attributes: ['user_id', 'user_type', 'fullname'] });
+        const loggedInUser = await User.findByPk(loggedInUserId, { attributes: ['fullname', 'user_type'] });
+        const otherUserRow = await User.findByPk(likedUserId, { attributes: ['user_id', 'user_type', 'fullname'] });
 
+        if (loggedInUser && otherUserRow) {
+            await Notification.create({
+                user_id: likedUserId,
+                message: `${loggedInUser.fullname || 'Someone'} liked you.`,
+                sender_id: loggedInUserId,
+                // like_id: newLike.like_id // Fix Notification model for this
+            });
+        } else {
+            console.warn(`Could not find one or both users (${loggedInUserId}, ${likedUserId}) for like notification`);
+        }
 
-      if (loggedInUser) {
-          await Notification.create({
-            user_id: likedUserId,
-            message: `${loggedInUser.fullname || 'Someone'} liked you.`,
-            sender_id: loggedInUserId,
-            // like_id: newLike.like_id // <<< Temporarily commented out to fix TS error. FIX Notification Model to include like_id!
-          });
-      } else {
-           console.warn(`Could not find logged in user ${loggedInUserId} to create like notification`);
-      }
+        const mutualLike = await Like.findOne({
+            where: { user_id: likedUserId, liked_user_id: loggedInUserId },
+        });
 
+        if (!mutualLike || !otherUserRow || !loggedInUser) {
+            return void res.status(201).json({ message: 'Like added', liked: true });
+        }
 
-      // Check if there is a mutual like
-      const mutualLike = await Like.findOne({
-        where: { user_id: likedUserId, liked_user_id: loggedInUserId },
-      });
+        console.log(`Mutual like detected between User ${loggedInUserId} and User ${likedUserId}`);
+        let chat: Chat | null = null;
+        const loggedUserType = loggedInUser.user_type;
+        const otherUserType = otherUserRow.user_type;
 
-      if (!mutualLike || !otherUserRow || !loggedInUser) { // Check if users exist for mutual like part
-        return void res.status(201).json({ message: 'Like added', liked: true });
-      }
+        let artistUser_actualId: number | null = null; // This will hold the user_id of the artist
+        let employerUser_actualId: number | null = null; // This will hold the user_id of the employer
 
-      // --- Mutual Like Found ---
-      console.log(`Mutual like detected between ${loggedInUserId} and ${likedUserId}`);
-      let chat: Chat | null = null;
-      const loggedUserType = loggedInUser.user_type; // Use already fetched user info
-      const otherUserType = otherUserRow.user_type;
+        if (loggedUserType === 'Artist' && otherUserType === 'Employer') {
+            artistUser_actualId = loggedInUserId;
+            employerUser_actualId = likedUserId;
+        } else if (loggedUserType === 'Employer' && otherUserType === 'Artist') {
+            artistUser_actualId = likedUserId;
+            employerUser_actualId = loggedInUserId;
+        }
 
-      let artistUserId: number | null = null;
-      let employerUserId: number | null = null;
+        if (artistUser_actualId && employerUser_actualId) {
+            // --- FIX: Fetch actual artist_id and employer_id ---
+            const artistProfile = await Artist.findOne({ where: { user_id: artistUser_actualId }, attributes: ['artist_id'] });
+            const employerProfile = await Employer.findOne({ where: { user_id: employerUser_actualId }, attributes: ['employer_id'] });
 
-      if (loggedUserType === 'Artist' && otherUserType === 'Employer') {
-          artistUserId = loggedInUserId;
-          employerUserId = likedUserId;
-      } else if (loggedUserType === 'Employer' && otherUserType === 'Artist') {
-          artistUserId = likedUserId;
-          employerUserId = loggedInUserId;
-      }
+            if (artistProfile && employerProfile) {
+                const actualArtistProfileId = artistProfile.artist_id;
+                const actualEmployerProfileId = employerProfile.employer_id;
 
-      if (artistUserId && employerUserId) {
-          // Find or Create Chat
-          [chat] = await Chat.findOrCreate({
-              where: { artist_user_id: artistUserId, employer_user_id: employerUserId },
-              defaults: { artist_user_id: artistUserId, employer_user_id: employerUserId }
-          });
+                console.log(`Attempting to find/create chat for Artist ID: ${actualArtistProfileId} and Employer ID: ${actualEmployerProfileId}`);
 
-          if (chat) { // Should always exist after findOrCreate
-              console.log(`Chat found or created with ID: ${chat.chat_id}`);
-              // Notify both users about the new chat/match (only if chat was just created? Check logic)
-               await Notification.create({
-                   user_id: loggedInUserId,
-                   message: `You matched with ${otherUserRow.fullname || 'user'}! Start chatting.`,
-                   sender_id: likedUserId, // System or other user?
-                   // Add chat_id maybe?
-               });
-               await Notification.create({
-                   user_id: likedUserId,
-                   message: `You matched with ${loggedInUser.fullname || 'user'}! Start chatting.`,
-                   sender_id: loggedInUserId,
-                   // Add chat_id maybe?
-               });
-          }
-      } else {
-          console.log('Mutual like between same user types, no chat created.');
-      }
+                // Use the actual artist_id and employer_id for the Chat model attributes
+                // (Remember your Chat model maps artist_user_id to artist_id column and employer_user_id to employer_id column)
+                [chat] = await Chat.findOrCreate({
+                    where: { artist_user_id: actualArtistProfileId, employer_user_id: actualEmployerProfileId },
+                    defaults: { artist_user_id: actualArtistProfileId, employer_user_id: actualEmployerProfileId }
+                });
 
-      res.status(201).json({
-          message: 'Like added (mutual like detected).',
-          liked: true,
-          chat_id: chat?.chat_id || null
-       });
+                if (chat) {
+                    console.log(`Chat found or created with ID: ${chat.chat_id}`);
+                    // Notify both users about the match/chat
+                    await Notification.create({
+                        user_id: loggedInUserId,
+                        message: `You matched with ${otherUserRow.fullname || 'user'}! Start chatting.`,
+                        sender_id: likedUserId,
+                    });
+                    await Notification.create({
+                        user_id: likedUserId,
+                        message: `You matched with ${loggedInUser.fullname || 'user'}! Start chatting.`,
+                        sender_id: loggedInUserId,
+                    });
+                }
+            } else {
+                console.log('Could not find corresponding Artist or Employer profile for one or both users.');
+            }
+            // --- END FIX ---
+        } else {
+            console.log('Mutual like between same user types, or user types not determined; no chat created.');
+        }
+
+        res.status(201).json({
+            message: 'Like added (mutual like detected).',
+            liked: true,
+            chat_id: chat?.chat_id || null
+        });
 
     } catch (error) {
-      console.error('Error toggling like:', error);
-      res.status(500).json({ error: 'Failed to toggle like' });
+        console.error('Error toggling like:', error);
+        res.status(500).json({ error: 'Failed to toggle like' });
     }
 };
+
+// ... (keep your other controller functions: checkLike, getCurrentUser, getUserProfile, etc.) ...
 
 // ─────────────────────────────────────────────────────────────
 // CHECK IF THE CURRENT USER LIKED A SPECIFIC USER
