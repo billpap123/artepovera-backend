@@ -8,42 +8,77 @@ import Chat from '../models/Chat';
 import Message from '../models/Message';
 import User from '../models/User';
 import { CustomRequest } from '../middleware/authMiddleware'; // Make sure this is imported
-
-
+import Artist from "../models/Artist";
+import Employer from "../models/Employer";
 /* -------------------------------------------------------------------------- */
 /* CREATE CHAT                                                                 */
 /* -------------------------------------------------------------------------- */
 // POST /api/chats
-// Body: { artistUserId: number, employerUserId: number }
-// We store direct user IDs in the chat: artist_user_id, employer_user_id
+// Body: { user1_id: number, user2_id: number } // Expects two USER IDs
+// Backend will determine who is artist and employer and use their respective profile IDs.
 export const createChat = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { artistUserId, employerUserId } = req.body;
+    // Renamed for clarity, these are USER IDs from the request body
+    const { user1_id, user2_id } = req.body;
 
-    if (!artistUserId || !employerUserId) {
+    if (!user1_id || !user2_id) {
       return void res.status(400).json({
-        message: 'artistUserId and employerUserId are required.',
+        message: 'Two user IDs (user1_id, user2_id) are required.',
       });
     }
+    if (user1_id === user2_id) {
+        return void res.status(400).json({ message: 'Cannot create a chat with oneself.'});
+    }
 
-    // 1) Optional: Check if both users actually exist in the users table
-    const [artistUser, employerUser] = await Promise.all([
-      User.findByPk(artistUserId),
-      User.findByPk(employerUserId),
+    // 1) Check if both users actually exist and get their types
+    const [user1, user2] = await Promise.all([
+      User.findByPk(user1_id, { attributes: ['user_id', 'user_type'] }),
+      User.findByPk(user2_id, { attributes: ['user_id', 'user_type'] }),
     ]);
-    if (!artistUser || !employerUser) {
+
+    if (!user1 || !user2) {
       return void res
         .status(404)
         .json({ message: 'One or both user IDs not found in users table.' });
     }
 
-    // 2) Check if a Chat already exists with these user IDs
+    // 2) Determine who is the artist and who is the employer
+    let artistUser_actualId: number | null = null;     // This will hold the user_id of the artist
+    let employerUser_actualId: number | null = null;   // This will hold the user_id of the employer
+
+    if (user1.user_type === 'Artist' && user2.user_type === 'Employer') {
+        artistUser_actualId = user1.user_id;
+        employerUser_actualId = user2.user_id;
+    } else if (user1.user_type === 'Employer' && user2.user_type === 'Artist') {
+        artistUser_actualId = user2.user_id;
+        employerUser_actualId = user1.user_id;
+    } else {
+        return void res.status(400).json({
+            message: 'Chat creation requires one Artist and one Employer.',
+        });
+    }
+
+    // 3) Fetch the actual artist_id and employer_id from their respective profile tables
+    const artistProfile = await Artist.findOne({ where: { user_id: artistUser_actualId }, attributes: ['artist_id'] });
+    const employerProfile = await Employer.findOne({ where: { user_id: employerUser_actualId }, attributes: ['employer_id'] });
+
+    if (!artistProfile || !employerProfile) {
+        return void res.status(404).json({ message: 'Artist or Employer profile not found for the given user IDs.' });
+    }
+
+    const actualArtistProfileId = artistProfile.artist_id;
+    const actualEmployerProfileId = employerProfile.employer_id;
+
+    // 4) Check if a Chat already exists with these *actual* profile IDs
+    // Remember Chat model maps artist_user_id to artist_id and employer_user_id to employer_id
     const existingChat = await Chat.findOne({
       where: {
-        artist_user_id: artistUserId,
-        employer_user_id: employerUserId,
+        // Use the model attribute names, which will map to DB columns artist_id and employer_id
+        artist_user_id: actualArtistProfileId,
+        employer_user_id: actualEmployerProfileId,
       },
     });
+
     if (existingChat) {
       return void res.status(200).json({
         message: 'Chat already exists.',
@@ -51,10 +86,12 @@ export const createChat = async (req: Request, res: Response): Promise<void> => 
       });
     }
 
-    // 3) Create the chat row
+    // 5) Create the chat row using the actual profile IDs
     const chat = await Chat.create({
-      artist_user_id: artistUserId,
-      employer_user_id: employerUserId,
+      // Use the model attribute names
+      artist_user_id: actualArtistProfileId,
+      employer_user_id: actualEmployerProfileId,
+      // message_count, artist_rating_status, employer_rating_status will use defaults
     });
 
     return void res.status(201).json({
