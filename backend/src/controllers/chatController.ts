@@ -242,50 +242,137 @@ export const getChatHistory = async (req: Request, res: Response): Promise<void>
 // GET /api/chats/user/:user_id
 // We find all Chat rows where (artist_user_id = user_id) OR (employer_user_id = user_id),
 // then optionally include the other user’s name.
-export const fetchMessages = async (req: Request, res: Response): Promise<void> => {
-  const user_id = parseInt(req.params.user_id, 10);
-  if (Number.isNaN(user_id)) {
-    return void res.status(400).json({ message: 'Invalid user_id.' });
+export const fetchMessages = async (req: CustomRequest, res: Response): Promise<void> => {
+  const loggedInUserId = req.user?.id; // Use authenticated user's ID
+
+  if (!loggedInUserId) {
+    return void res.status(401).json({ message: 'Unauthorized: User not logged in.' });
   }
 
   try {
-    // 1) Find all Chat rows matching user_id on either side
-    const chats = await Chat.findAll({
-      where: {
-        [Op.or]: [
-          { artist_user_id: user_id },
-          { employer_user_id: user_id },
-        ],
-      },
-      // 2) Optionally include the user info for each side:
+    // 1. Find the artist and employer profiles for the logged-in user
+    const userWithProfiles = await User.findByPk(loggedInUserId, {
       include: [
-        {
-          model: User,
-          as: 'artistUser',
-          attributes: ['user_id', 'fullname'],
-        },
-        {
-          model: User,
-          as: 'employerUser',
-          attributes: ['user_id', 'fullname'],
-        },
+        { model: Artist, as: 'artistProfile', attributes: ['artist_id'] },
+        { model: Employer, as: 'employerProfile', attributes: ['employer_id'] },
       ],
     });
 
-    if (!chats.length) {
-      return void res.status(200).json({
-        message: 'No chats found for this user.',
-        chats: [],
-      });
+    if (!userWithProfiles) {
+      return void res.status(404).json({ message: 'User not found.' });
     }
 
-    // 3) Return them
-    return void res.status(200).json({ chats });
+    const artistProfileId = userWithProfiles.artistProfile?.artist_id;
+    const employerProfileId = userWithProfiles.employerProfile?.employer_id;
+
+    // 2. Build the whereClause using the fetched profile IDs
+    const whereClause: any[] = [];
+    if (artistProfileId) {
+      // Chat model's attribute 'artist_user_id' maps to DB column 'artist_id'
+      whereClause.push({ artist_user_id: artistProfileId });
+    }
+    if (employerProfileId) {
+      // Chat model's attribute 'employer_user_id' maps to DB column 'employer_id'
+      whereClause.push({ employer_user_id: employerProfileId });
+    }
+
+    if (whereClause.length === 0) {
+      console.log(`[FETCH CHATS] User ${loggedInUserId} has no artist or employer profile ID to query chats.`);
+      return void res.status(200).json({ message: 'User has no relevant profile to fetch chats.', chats: [] });
+    }
+
+    // 3. Find all Chat rows
+    const chats = await Chat.findAll({
+      where: { [Op.or]: whereClause },
+      include: [
+        {
+          model: Artist,
+          as: 'chatArtistProfile', // From Chat.belongsTo(Artist, { as: 'chatArtistProfile' })
+          attributes: ['artist_id', 'profile_picture'], // Get picture from Artist profile
+          include: [{
+            model: User,
+            as: 'user', // From Artist.belongsTo(User, { as: 'user' })
+            attributes: ['user_id', 'fullname'], // Only user fields
+          }],
+          required: false,
+        },
+        {
+          model: Employer,
+          as: 'chatEmployerProfile', // From Chat.belongsTo(Employer, { as: 'chatEmployerProfile' })
+          attributes: ['employer_id', 'profile_picture'], // Get picture from Employer profile
+          include: [{
+            model: User,
+            as: 'user', // From Employer.belongsTo(User, { as: 'user' })
+            attributes: ['user_id', 'fullname'], // Only user fields
+          }],
+          required: false,
+        },
+      ],
+      order: [['updated_at', 'DESC']], // Order chats by most recent activity
+    });
+
+    console.log(`[FETCH CHATS DEBUG] Found ${chats.length} chats for user ${loggedInUserId}. Raw:`, JSON.stringify(chats, null, 2));
+
+    // 4. Transform the data to clearly show "other user" details
+    const formattedChats = chats.map(chat => {
+        const chatJson = chat.toJSON() as any;
+        let otherUserDisplayData = null;
+        let chatName = 'Chat'; // Default chat name
+
+        // Determine "other user" to display in chat list
+        if (userWithProfiles.artistProfile && chatJson.artist_user_id === userWithProfiles.artistProfile.artist_id) {
+            // Logged-in user is the artist in this chat, so other is employer
+            if (chatJson.chatEmployerProfile?.user) {
+                otherUserDisplayData = {
+                    user_id: chatJson.chatEmployerProfile.user.user_id,
+                    fullname: chatJson.chatEmployerProfile.user.fullname,
+                    profile_picture: chatJson.chatEmployerProfile.profile_picture
+                };
+                chatName = otherUserDisplayData.fullname || 'Chat with Employer';
+            }
+        } else if (userWithProfiles.employerProfile && chatJson.employer_user_id === userWithProfiles.employerProfile.employer_id) {
+            // Logged-in user is the employer, so other is artist
+            if (chatJson.chatArtistProfile?.user) {
+                otherUserDisplayData = {
+                    user_id: chatJson.chatArtistProfile.user.user_id,
+                    fullname: chatJson.chatArtistProfile.user.fullname,
+                    profile_picture: chatJson.chatArtistProfile.profile_picture
+                };
+                chatName = otherUserDisplayData.fullname || 'Chat with Artist';
+            }
+        } else {
+             console.warn(`[FETCH CHATS] Could not determine other user for chat_id: ${chatJson.chat_id}. LoggedInUserId: ${loggedInUserId}`);
+             // Fallback if roles are ambiguous
+             if (chatJson.chatArtistProfile?.user) {
+                 otherUserDisplayData = { user_id: chatJson.chatArtistProfile.user.user_id, fullname: chatJson.chatArtistProfile.user.fullname, profile_picture: chatJson.chatArtistProfile.profile_picture };
+                 chatName = otherUserDisplayData.fullname || "Chat with Artist";
+            } else if (chatJson.chatEmployerProfile?.user) {
+                 otherUserDisplayData = { user_id: chatJson.chatEmployerProfile.user.user_id, fullname: chatJson.chatEmployerProfile.user.fullname, profile_picture: chatJson.chatEmployerProfile.profile_picture };
+                 chatName = otherUserDisplayData.fullname || "Chat with Employer";
+            }
+        }
+
+        return {
+            chat_id: chatJson.chat_id,
+            message_count: chatJson.message_count,
+            artist_rating_status: chatJson.artist_rating_status,
+            employer_rating_status: chatJson.employer_rating_status,
+            created_at: chatJson.created_at, // Or createdAt based on your model's underscored setting
+            updated_at: chatJson.updated_at, // Or updatedAt
+            otherUser: otherUserDisplayData,
+            chatName: chatName
+        };
+    });
+
+    if (!formattedChats.length && chats.length > 0) {
+        console.warn("[FETCH CHATS] Raw chats were found but formattedChats resulted in an empty array. Check formatting logic.");
+    }
+
+    return void res.status(200).json({ chats: formattedChats });
+
   } catch (error) {
-    console.error('Error fetching chats for user:', error);
-    return void res
-      .status(500)
-      .json({ message: 'Failed to fetch chats.' });
+    console.error(`Error fetching chats for user ${loggedInUserId}:`, error);
+    return void res.status(500).json({ message: 'Failed to fetch chats.' });
   }
 };
 
