@@ -347,7 +347,7 @@ export const applyToJob = async (
 
     // 8) Build the message using the job's title instead of the job ID.
     // For example, if the job title is "Graphic Designer Needed", the message will include that title.
-    const message = `${artistName} has applied for your job posting titled "${jobPosting.title}". <a href="${artistProfileLink}" target="_blank">View Profile</a>`;
+    const message = `${artistName} has applied for your job posting titled "${jobPosting.title}". <a href="${artistProfileLink}" target="_blank">View profile</a>`;
 
     // 9) Create the notification
     await Notification.create({
