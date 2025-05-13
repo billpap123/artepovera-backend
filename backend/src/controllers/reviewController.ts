@@ -6,65 +6,150 @@ import User from '../models/User';
 import sequelize from '../config/db';
 import { CustomRequest } from '../middleware/authMiddleware';
 import { Sequelize } from 'sequelize'; // Keep needed imports
-// --- FIX: Correct model imports ---
 import Artist from '../models/Artist';
 import Employer from '../models/Employer';
-// --- END FIX ---
 
-
-// Keep your existing submitReview function here
 export const submitReview = async (req: CustomRequest, res: Response): Promise<void> => {
-     try {
-        const reviewerUserId = req.user?.id;
-        const { chatId, reviewedUserId, overallRating, specificAnswers } = req.body;
+    try {
+        const loggedInUserId = req.user?.id; // This is the reviewer (User.user_id)
+        const { chatId, reviewedUserId, overallRating, specificAnswers } = req.body; // reviewedUserId is User.user_id
+
         // --- Basic Validation ---
-        if (!reviewerUserId) { res.status(401).json({ message: 'Unauthorized: Missing reviewer ID.' }); return; }
+        if (!loggedInUserId) { res.status(401).json({ message: 'Unauthorized: Missing reviewer ID.' }); return; }
         if (!chatId || !reviewedUserId || overallRating === undefined) { res.status(400).json({ message: 'Missing required fields: chatId, reviewedUserId, overallRating.' }); return; }
         if (typeof overallRating !== 'number' || overallRating < 1 || overallRating > 5) { res.status(400).json({ message: 'Overall rating must be a number between 1 and 5.' }); return; }
-        if (reviewerUserId === reviewedUserId) { res.status(400).json({ message: 'Users cannot review themselves.' }); return; }
+        if (loggedInUserId === reviewedUserId) { res.status(400).json({ message: 'Users cannot review themselves.' }); return; }
         // --- End Validation ---
-        const chat = await Chat.findByPk(chatId);
+
+        const numericChatId = parseInt(chatId, 10);
+        const numericReviewedUserId = parseInt(reviewedUserId, 10);
+
+        if (isNaN(numericChatId) || isNaN(numericReviewedUserId)) {
+            res.status(400).json({ message: "Chat ID and Reviewed User ID must be numbers." }); return;
+        }
+
+        const chat = await Chat.findByPk(numericChatId);
         if (!chat) { res.status(404).json({ message: 'Chat session not found.' }); return; }
-        const isReviewerArtist = chat.artist_user_id === reviewerUserId;
-        const isReviewerEmployer = chat.employer_user_id === reviewerUserId;
-        const isReviewedParticipant = chat.artist_user_id === reviewedUserId || chat.employer_user_id === reviewedUserId;
-        if (!(isReviewerArtist || isReviewerEmployer) || !isReviewedParticipant) { res.status(403).json({ message: 'Reviewer or reviewed user is not part of this chat.' }); return; }
-        // TODO: Check if review already exists
-        const newReview = await Review.create({
-            chat_id: chatId, reviewer_user_id: reviewerUserId, reviewed_user_id: reviewedUserId,
-            overall_rating: overallRating, specific_answers: specificAnswers || null,
+
+        // --- CORRECTED AND MORE EXPLICIT PARTICIPANT CHECK ---
+        // 1. Get profiles for the logged-in user (reviewer)
+        const reviewerUserWithProfiles = await User.findByPk(loggedInUserId, {
+            include: [
+                { model: Artist, as: 'artistProfile', attributes: ['artist_id'] },
+                { model: Employer, as: 'employerProfile', attributes: ['employer_id'] }
+            ]
         });
-        try { // Update Chat status
-            const statusFieldToUpdate = isReviewerArtist ? 'artist_rating_status' : 'employer_rating_status';
-            await chat.update({ [statusFieldToUpdate]: 'completed' });
-             console.log(`[Chat ${chatId}] User ${reviewerUserId} rating status set to completed.`);
-        } catch (statusError) { console.error(`[Chat ${chatId}] Failed to update rating status after review submission:`, statusError); }
+        if (!reviewerUserWithProfiles) { res.status(404).json({ message: 'Reviewer profile not found.' }); return; }
+
+        // 2. Get profiles for the user being reviewed
+        const reviewedUserWithProfiles = await User.findByPk(numericReviewedUserId, {
+            include: [
+                { model: Artist, as: 'artistProfile', attributes: ['artist_id'] },
+                { model: Employer, as: 'employerProfile', attributes: ['employer_id'] }
+            ]
+        });
+        if (!reviewedUserWithProfiles) { res.status(404).json({ message: 'User being reviewed not found.' }); return; }
+
+        // Get the actual Profile PKs (Artist.artist_id or Employer.employer_id)
+        const reviewerArtistId = reviewerUserWithProfiles.artistProfile?.artist_id;
+        const reviewerEmployerId = reviewerUserWithProfiles.employerProfile?.employer_id;
+        const reviewedArtistId = reviewedUserWithProfiles.artistProfile?.artist_id;
+        const reviewedEmployerId = reviewedUserWithProfiles.employerProfile?.employer_id;
+
+        // --- Determine roles in THIS specific chat ---
+        // chat.artist_user_id stores the Artist PK for this chat
+        // chat.employer_user_id stores the Employer PK for this chat
+        const chatArtistParticipantId = chat.artist_user_id;
+        const chatEmployerParticipantId = chat.employer_user_id;
+
+        // Is the reviewer the artist recorded in this chat?
+        const isReviewerTheArtistInChat = reviewerArtistId && reviewerArtistId === chatArtistParticipantId;
+        // Is the reviewer the employer recorded in this chat?
+        const isReviewerTheEmployerInChat = reviewerEmployerId && reviewerEmployerId === chatEmployerParticipantId;
+
+        // Is the user being reviewed the artist recorded in this chat?
+        const isReviewedTheArtistInChat = reviewedArtistId && reviewedArtistId === chatArtistParticipantId;
+        // Is the user being reviewed the employer recorded in this chat?
+        const isReviewedTheEmployerInChat = reviewedEmployerId && reviewedEmployerId === chatEmployerParticipantId;
+
+        // Valid scenarios:
+        // 1. Reviewer is the Artist in chat, AND Reviewed User is the Employer in chat
+        // 2. Reviewer is the Employer in chat, AND Reviewed User is the Artist in chat
+        const isValidParticipants =
+            (isReviewerTheArtistInChat && isReviewedTheEmployerInChat) ||
+            (isReviewerTheEmployerInChat && isReviewedTheArtistInChat);
+
+        if (!isValidParticipants) {
+            console.warn(`[SUBMIT REVIEW] Auth Fail: ChatID: ${chatId}`);
+            console.warn(`  Chat Participants (Profile PKs) - Artist: ${chat.artist_user_id}, Employer: ${chat.employer_user_id}`);
+            console.warn(`  Reviewer (User ID ${loggedInUserId}) - Artist PK: ${reviewerArtistId}, Employer PK: ${reviewerEmployerId}`);
+            console.warn(`  Reviewed (User ID ${numericReviewedUserId}) - Artist PK: ${reviewedArtistId}, Employer PK: ${reviewedEmployerId}`);
+            res.status(403).json({ message: 'Reviewer and reviewed user must be the two distinct artist/employer participants of this chat.' });
+            return;
+        }
+        // --- END CORRECTED PARTICIPANT CHECK ---
+
+        // Prevent duplicate reviews for the same chat by the same reviewer
+        const existingReview = await Review.findOne({
+            where: {
+                chat_id: numericChatId,
+                reviewer_user_id: loggedInUserId
+            }
+        });
+        if (existingReview) {
+            return void res.status(409).json({ message: "You have already submitted a review for this collaboration/chat."});
+        }
+
+        const newReview = await Review.create({
+            chat_id: numericChatId,
+            reviewer_user_id: loggedInUserId,
+            reviewed_user_id: numericReviewedUserId,
+            overall_rating: overallRating,
+            specific_answers: specificAnswers || null,
+        });
+
+        // Update Chat status (for the reviewer)
+        try {
+            let statusFieldToUpdate: 'artist_rating_status' | 'employer_rating_status' | null = null;
+            // Use the flags determined above for clarity
+            if (isReviewerTheArtistInChat) {
+                statusFieldToUpdate = 'artist_rating_status';
+            } else if (isReviewerTheEmployerInChat) {
+                statusFieldToUpdate = 'employer_rating_status';
+            }
+
+            if (statusFieldToUpdate) {
+                await chat.update({ [statusFieldToUpdate]: 'completed' });
+                console.log(`[Chat ${numericChatId}] User ${loggedInUserId} rating status set to completed.`);
+            } else {
+                // This case should ideally not be reached if isValidParticipants is true
+                console.warn(`[Chat ${numericChatId}] Could not determine status field to update for reviewer ${loggedInUserId}. This indicates an issue in participant role determination.`);
+            }
+        } catch (statusError) {
+            console.error(`[Chat ${numericChatId}] Failed to update rating status after review submission:`, statusError);
+        }
+
         res.status(201).json({ message: 'Review submitted successfully!', review: newReview });
+
     } catch (error: any) {
          console.error("❌ Error submitting review:", error);
-         if (error.name === 'SequelizeValidationError') { res.status(400).json({ message: 'Validation failed.', errors: error.errors?.map((e: any) => e.message) }); }
-         else { res.status(500).json({ message: 'Failed to submit review.', error: error.message }); }
+         if (error.name === 'SequelizeValidationError') {
+             res.status(400).json({ message: 'Validation failed.', errors: error.errors?.map((e: any) => e.message) });
+         } else {
+             res.status(500).json({ message: 'Failed to submit review.', error: error.message });
+         }
     }
 };
 
-
-// Define interface for the aggregation result
-interface AverageRatingResult {
-    averageRating: number | string | null;
-    reviewCount: number | string;
-}
-
-
 // --- Define interface for the SUM/COUNT aggregation result ---
 interface SumRatingResult {
-  ratingSum: number | string | null; // SUM can return decimal/string or null if no rows
-  reviewCount: number | string;     // COUNT returns BIGINT which might be string
+  ratingSum: number | string | null;
+  reviewCount: number | string;
 }
 
 /* -------------------------------------------------------------------------- */
 /* GET AVERAGE RATING FOR A USER (Using SUM / COUNT)                          */
 /* -------------------------------------------------------------------------- */
-// GET /api/users/:userId/average-rating
 export const getAverageRatingForUser = async (req: Request, res: Response): Promise<void> => {
   try {
       const userId = parseInt(req.params.userId, 10);
@@ -72,27 +157,21 @@ export const getAverageRatingForUser = async (req: Request, res: Response): Prom
           res.status(400).json({ message: 'Invalid User ID.' }); return;
       }
 
-      // Fetch the SUM and COUNT using aggregation
       const result = await Review.findOne({
           where: { reviewed_user_id: userId },
           attributes: [
-              // --- CHANGE: Use SUM instead of AVG ---
               [sequelize.fn('SUM', sequelize.col('overall_rating')), 'ratingSum'],
-              // --- Keep COUNT ---
               [sequelize.fn('COUNT', sequelize.col('review_id')), 'reviewCount']
           ],
-          raw: true // Get plain object
-      }) as unknown as SumRatingResult | null; // Use the new interface type assertion
+          raw: true
+      }) as unknown as SumRatingResult | null;
 
-      // Calculate the average manually
       const reviewCount = result?.reviewCount ? parseInt(String(result.reviewCount), 10) : 0;
-      let averageRating: number | null = null; // Initialize as null
+      let averageRating: number | null = null;
 
-      // Only calculate average if there are reviews and a sum was returned
       if (reviewCount > 0 && result?.ratingSum != null) {
-          const ratingSum = parseFloat(String(result.ratingSum)); // Parse sum safely
-          if (!isNaN(ratingSum)) { // Check if sum is a valid number
-               // Perform division and format to one decimal place
+          const ratingSum = parseFloat(String(result.ratingSum));
+          if (!isNaN(ratingSum)) {
                averageRating = parseFloat((ratingSum / reviewCount).toFixed(1));
           } else {
                console.error(`Could not parse ratingSum ('${result.ratingSum}') to number for user ${userId}`);
@@ -100,12 +179,7 @@ export const getAverageRatingForUser = async (req: Request, res: Response): Prom
       }
 
       console.log(`[Rating Avg Calc] User: ${userId}, Sum: ${result?.ratingSum}, Count: ${reviewCount}, Average: ${averageRating}`);
-
-      // Return the calculated average and count
-      res.status(200).json({
-          averageRating: averageRating, // Calculated average (e.g., 4.5) or null
-          reviewCount: reviewCount      // Total number of reviews (e.g., 12)
-      });
+      res.status(200).json({ averageRating: averageRating, reviewCount: reviewCount });
 
   } catch (error: any) {
       console.error(`Error fetching average rating for user ${req.params.userId}:`, error);
@@ -113,9 +187,7 @@ export const getAverageRatingForUser = async (req: Request, res: Response): Prom
   }
 };
 
-
-
-// GET REVIEWS RECEIVED BY A USER (with detailed mapping logs)
+// GET REVIEWS RECEIVED BY A USER
 export const getReviewsForUser = async (req: Request, res: Response): Promise<void> => {
   try {
        const userId = parseInt(req.params.userId, 10);
@@ -128,58 +200,45 @@ export const getReviewsForUser = async (req: Request, res: Response): Promise<vo
           include: [
               {
                   model: User,
-                  as: 'reviewer', // Alias for the reviewer User model
+                  as: 'reviewer',
                   attributes: ['user_id', 'fullname', 'user_type'],
-                  include: [ // Nested include for profile pic
+                  include: [
                       { model: Artist, as: 'artistProfile', attributes: ['profile_picture'], required: false },
                       { model: Employer, as: 'employerProfile', attributes: ['profile_picture'], required: false }
                   ]
               }
           ],
-          order: [['created_at', 'DESC']]
+          order: [['created_at', 'DESC']] // Use actual DB column name if model isn't underscored or using 'field'
        });
 
        console.log(`[getReviewsForUser] Found ${reviews.length} reviews.`);
 
-       // Format the response to simplify reviewer info
        const formattedReviews = reviews.map((review, index) => {
-           console.log(`\n[MAP DEBUG ${index+1}] Processing review ID: ${review.review_id}`); // Log start of map item
-
-           // Use .get() for plain object which often handles associations better than toJSON()
+           // console.log(`\n[MAP DEBUG ${index+1}] Processing review ID: ${review.review_id}`);
            const reviewData = review.get({ plain: true }) as any;
-           console.log("[MAP DEBUG] review.get({ plain: true }) output:", JSON.stringify(reviewData, null, 2)); // Log the plain object
-
-           const reviewerData = reviewData.reviewer; // Access the nested reviewer object
-           console.log("[MAP DEBUG] Reviewer data object:", JSON.stringify(reviewerData, null, 2));
-
+           // console.log("[MAP DEBUG] review.get({ plain: true }) output:", JSON.stringify(reviewData, null, 2));
+           const reviewerData = reviewData.reviewer;
+           // console.log("[MAP DEBUG] Reviewer data object:", JSON.stringify(reviewerData, null, 2));
            let reviewerProfilePic: string | null = null;
            if (reviewerData) {
-                // Try to get pic from either nested profile
                 reviewerProfilePic = reviewerData.artistProfile?.profile_picture || reviewerData.employerProfile?.profile_picture || null;
-                console.log("[MAP DEBUG] Extracted reviewerProfilePic:", reviewerProfilePic);
-           } else {
-               console.log("[MAP DEBUG] No reviewer data found in included object.");
-           }
-
-           // Create the simplified reviewer object
+                // console.log("[MAP DEBUG] Extracted reviewerProfilePic:", reviewerProfilePic);
+           } // else { console.log("[MAP DEBUG] No reviewer data found in included object."); }
            const finalReviewer = reviewerData ? {
                user_id: reviewerData.user_id,
                fullname: reviewerData.fullname,
-               profile_picture: reviewerProfilePic // Assign the extracted pic here
+               profile_picture: reviewerProfilePic
            } : null;
-           console.log("[MAP DEBUG] Final reviewer object created:", JSON.stringify(finalReviewer, null, 2));
-
-           // Construct the final object for this review
+           // console.log("[MAP DEBUG] Final reviewer object created:", JSON.stringify(finalReviewer, null, 2));
            const formattedReview = {
                review_id: reviewData.review_id,
                chat_id: reviewData.chat_id,
                overall_rating: reviewData.overall_rating,
                specific_answers: reviewData.specific_answers,
-               // Access correct timestamp field (assuming underscored:true in Review model)
-               created_at: reviewData.created_at,
+               created_at: reviewData.created_at, // This relies on Review model having underscored: true
                reviewer: finalReviewer
            };
-            console.log("[MAP DEBUG] Final formatted review object:", JSON.stringify(formattedReview, null, 2));
+           //  console.log("[MAP DEBUG] Final formatted review object:", JSON.stringify(formattedReview, null, 2));
             return formattedReview;
        });
 
