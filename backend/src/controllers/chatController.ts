@@ -115,6 +115,16 @@ export const createChat = async (req: Request, res: Response): Promise<void> => 
 /* -------------------------------------------------------------------------- */
 // POST /api/chats/send
 // Body: { chat_id, sender_id, message }
+
+// src/controllers/chat.controller.ts
+// Ensure all necessary imports are at the top:
+// import { Request, Response } from 'express';
+// import Chat from '../models/Chat';
+// import Message from '../models/Message';
+// import User from '../models/User';
+// import Artist from '../models/Artist';
+// import Employer from '../models/Employer';
+
 export const sendMessage = async (req: Request, res: Response): Promise<void> => {
   try {
     const { chat_id, sender_id, message } = req.body;
@@ -125,66 +135,89 @@ export const sendMessage = async (req: Request, res: Response): Promise<void> =>
       });
     }
 
-    // 1) Fetch the chat
-    // Ensure your Chat model has the message_count, artist_rating_status, employer_rating_status fields defined
-    const chat = await Chat.findByPk(chat_id);
+    const numericChatId = parseInt(chat_id, 10);
+    const numericSenderId = parseInt(sender_id, 10); // This is a User.user_id
+
+    if (isNaN(numericChatId) || isNaN(numericSenderId)) {
+        return void res.status(400).json({ message: 'chat_id and sender_id must be valid numbers.' });
+    }
+
+    const chat = await Chat.findByPk(numericChatId);
     if (!chat) {
       return void res.status(404).json({ message: 'Chat not found.' });
     }
 
-    // 2) Determine the receiver
-    let receiver_id: number;
-    // Ensure sender_id is treated as a number for strict comparison
-    const numericSenderId = Number(sender_id);
-    if (chat.artist_user_id === numericSenderId) {
-      receiver_id = chat.employer_user_id;
-    } else if (chat.employer_user_id === numericSenderId) {
-      receiver_id = chat.artist_user_id;
-    } else {
-      console.warn(`Sender ID ${sender_id} (type: ${typeof sender_id}) did not match chat participants ${chat.artist_user_id} or ${chat.employer_user_id}`);
-      return void res
-        .status(403)
-        .json({ message: 'Sender is not part of this chat.' });
-    }
-
-    // 3) Verify the sender actually exists
-    const sender = await User.findByPk(numericSenderId);
-    if (!sender) {
-      return void res
-        .status(404)
-        .json({ message: 'Sender user does not exist.' });
-    }
-
-    // 4) Create the message
-    const newMessage = await Message.create({
-      chat_id,
-      sender_id: numericSenderId, // Use numeric ID
-      receiver_id,
-      message: message.trim(), // Trim message whitespace
+    // Fetch the sender's User model along with their Artist/Employer profile IDs
+    const senderUserWithProfiles = await User.findByPk(numericSenderId, {
+      include: [
+        { model: Artist, as: 'artistProfile', attributes: ['artist_id'] }, // Get sender's artist_id
+        { model: Employer, as: 'employerProfile', attributes: ['employer_id'] } // Get sender's employer_id
+      ]
     });
 
-    // --- ADDED: Increment message count ---
-    // This happens after the message is successfully saved
-    try {
-        // Use the 'chat' instance we already fetched
-        await chat.increment('message_count', { by: 1 });
-        console.log(`[Chat ${chat_id}] Message count incremented to ${chat.message_count + 1}.`); // Log new potential count
-    } catch (countError) {
-        // Log the error but don't fail the message sending response
-        console.error(`[Chat ${chat_id}] Failed to increment message count:`, countError);
+    if (!senderUserWithProfiles) {
+      return void res.status(404).json({ message: 'Sender user not found.' });
     }
-    // --- END ADDITION ---
 
-    // 5) Send successful response (including the message just sent)
+    let receiver_user_id: number; // This needs to be the User.user_id of the recipient
+
+    // chat.artist_user_id stores an Artist.artist_id (PK of artists table)
+    // chat.employer_user_id stores an Employer.employer_id (PK of employers table)
+
+    // Check if the SENDER is the ARTIST associated with THIS CHAT
+    if (senderUserWithProfiles.artistProfile && chat.artist_user_id === senderUserWithProfiles.artistProfile.artist_id) {
+      // Sender is the Artist participant in this chat. Receiver is the Employer's User.
+      const employerProfileInChat = await Employer.findByPk(chat.employer_user_id, {
+        attributes: ['user_id'] // We need the user_id associated with this employer profile
+      });
+      if (!employerProfileInChat) {
+        console.error(`Chat ${numericChatId}: Could not find Employer profile for employer_id ${chat.employer_user_id}`);
+        return void res.status(404).json({ message: "Chat partner (Employer profile) not found for this chat." });
+      }
+      receiver_user_id = employerProfileInChat.user_id;
+    }
+    // Check if the SENDER is the EMPLOYER associated with THIS CHAT
+    else if (senderUserWithProfiles.employerProfile && chat.employer_user_id === senderUserWithProfiles.employerProfile.employer_id) {
+      // Sender is the Employer participant in this chat. Receiver is the Artist's User.
+      const artistProfileInChat = await Artist.findByPk(chat.artist_user_id, {
+        attributes: ['user_id'] // We need the user_id associated with this artist profile
+      });
+      if (!artistProfileInChat) {
+        console.error(`Chat ${numericChatId}: Could not find Artist profile for artist_id ${chat.artist_user_id}`);
+        return void res.status(404).json({ message: 'Chat partner (Artist profile) not found for this chat.' });
+      }
+      receiver_user_id = artistProfileInChat.user_id;
+    } else {
+      // Sender (User.user_id = numericSenderId) is not the artist OR the employer specifically linked to this chat.
+      console.warn(`Sender User ID ${numericSenderId} is not an active artist or employer participant in chat ${numericChatId}. Chat involves artist_id: ${chat.artist_user_id} and employer_id: ${chat.employer_user_id}`);
+      return void res.status(403).json({ message: 'Sender is not a recognized participant in this chat.' });
+    }
+
+    // Create the message
+    const newMessage = await Message.create({
+      chat_id: numericChatId,
+      sender_id: numericSenderId,     // This is User.user_id of the sender
+      receiver_id: receiver_user_id,  // This is now correctly a User.user_id of the recipient
+      message: message.trim(),
+    });
+
+    // Increment message count and touch updated_at for the chat
+    try {
+        await chat.increment('message_count', { by: 1 });
+        chat.changed('updatedAt', true); // Use camelCase model attribute name
+        await chat.save({ fields: ['updated_at', 'message_count'] });
+        console.log(`[Chat ${numericChatId}] Message count incremented and chat updatedAt touched.`);
+    } catch (countError) {
+        console.error(`[Chat ${numericChatId}] Failed to increment message count or touch updatedAt:`, countError);
+    }
+
     return void res.status(201).json({
       message: 'Message sent successfully',
-      data: newMessage, // Return the created message object
+      data: newMessage,
     });
   } catch (error) {
     console.error('❌ Error in sendMessage:', error);
-    return void res
-      .status(500)
-      .json({ message: 'Internal server error.' });
+    return void res.status(500).json({ message: 'Internal server error.' });
   }
 };
 
