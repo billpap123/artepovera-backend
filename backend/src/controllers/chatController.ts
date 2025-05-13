@@ -10,6 +10,8 @@ import User from '../models/User';
 import { CustomRequest } from '../middleware/authMiddleware'; // Make sure this is imported
 import Artist from "../models/Artist";
 import Employer from "../models/Employer";
+import sequelize from '../config/db'; // <<< ADD THIS LINE (Adjust path if your db.ts is elsewhere)
+
 /* -------------------------------------------------------------------------- */
 /* CREATE CHAT                                                                 */
 /* -------------------------------------------------------------------------- */
@@ -105,41 +107,26 @@ export const createChat = async (req: Request, res: Response): Promise<void> => 
 };
 
 /* -------------------------------------------------------------------------- */
-/* SEND A MESSAGE                                                              */
+/* SEND A MESSAGE (Updated to return prompt status)                           */
 /* -------------------------------------------------------------------------- */
 // POST /api/chats/send
-// Body: { chat_id, sender_id, message }
-// We figure out the receiver by checking if sender_id matches artist_user_id or employer_user_id.
-/* -------------------------------------------------------------------------- */
-/* SEND A MESSAGE                                                              */
-/* -------------------------------------------------------------------------- */
-// POST /api/chats/send
-// Body: { chat_id, sender_id, message }
-
-// src/controllers/chat.controller.ts
-// Ensure all necessary imports are at the top:
-// import { Request, Response } from 'express';
-// import Chat from '../models/Chat';
-// import Message from '../models/Message';
-// import User from '../models/User';
-// import Artist from '../models/Artist';
-// import Employer from '../models/Employer';
-
-export const sendMessage = async (req: Request, res: Response): Promise<void> => {
+// Body: { chat_id, message } // sender_id will now come from token
+export const sendMessage = async (req: CustomRequest, res: Response): Promise<void> => {
   try {
-    const { chat_id, sender_id, message } = req.body;
+    const { chat_id, message } = req.body; // Get message and chat_id from body
+    const senderId = req.user?.id; // <<< Get sender_id from authenticated user (req.user)
 
-    if (!chat_id || !sender_id || !message?.trim()) {
+    if (!chat_id || !senderId || !message?.trim()) {
       return void res.status(400).json({
-        message: 'Missing chat_id, sender_id, or message.',
+        message: 'Missing chat_id, authenticated sender_id, or message.',
       });
     }
 
     const numericChatId = parseInt(chat_id, 10);
-    const numericSenderId = parseInt(sender_id, 10); // This is a User.user_id
+    // senderId is already a number if it comes from req.user.id
 
-    if (isNaN(numericChatId) || isNaN(numericSenderId)) {
-        return void res.status(400).json({ message: 'chat_id and sender_id must be valid numbers.' });
+    if (isNaN(numericChatId)) {
+        return void res.status(400).json({ message: 'chat_id must be a valid number.' });
     }
 
     const chat = await Chat.findByPk(numericChatId);
@@ -147,7 +134,9 @@ export const sendMessage = async (req: Request, res: Response): Promise<void> =>
       return void res.status(404).json({ message: 'Chat not found.' });
     }
 
-    const senderUserWithProfiles = await User.findByPk(numericSenderId, {
+    // Fetch the sender's User model along with their Artist/Employer profile IDs
+    // This is to determine the sender's role (Artist/Employer) in THIS chat
+    const senderUserWithProfiles = await User.findByPk(senderId, {
       include: [
         { model: Artist, as: 'artistProfile', attributes: ['artist_id'] },
         { model: Employer, as: 'employerProfile', attributes: ['employer_id'] }
@@ -155,61 +144,97 @@ export const sendMessage = async (req: Request, res: Response): Promise<void> =>
     });
 
     if (!senderUserWithProfiles) {
+      // Should be caught by authenticate middleware if req.user.id is used
       return void res.status(404).json({ message: 'Sender user not found.' });
     }
 
     let receiver_user_id: number; // This needs to be the User.user_id of the recipient
 
+    // chat.artist_user_id stores an Artist.artist_id (PK of artists table)
+    // chat.employer_user_id stores an Employer.employer_id (PK of employers table)
     if (senderUserWithProfiles.artistProfile && chat.artist_user_id === senderUserWithProfiles.artistProfile.artist_id) {
       const employerProfileInChat = await Employer.findByPk(chat.employer_user_id, { attributes: ['user_id'] });
       if (!employerProfileInChat) {
-        console.error(`Chat ${numericChatId}: Could not find Employer profile for employer_id ${chat.employer_user_id}`);
+        console.error(`Chat ${numericChatId}: Could not find Employer profile (ID ${chat.employer_user_id}) linked in chat.`);
         return void res.status(404).json({ message: "Chat partner (Employer profile) not found for this chat." });
       }
       receiver_user_id = employerProfileInChat.user_id;
     } else if (senderUserWithProfiles.employerProfile && chat.employer_user_id === senderUserWithProfiles.employerProfile.employer_id) {
       const artistProfileInChat = await Artist.findByPk(chat.artist_user_id, { attributes: ['user_id'] });
       if (!artistProfileInChat) {
-        console.error(`Chat ${numericChatId}: Could not find Artist profile for artist_id ${chat.artist_user_id}`);
+        console.error(`Chat ${numericChatId}: Could not find Artist profile (ID ${chat.artist_user_id}) linked in chat.`);
         return void res.status(404).json({ message: 'Chat partner (Artist profile) not found for this chat.' });
       }
       receiver_user_id = artistProfileInChat.user_id;
     } else {
-      console.warn(`Sender User ID ${numericSenderId} is not an active artist or employer participant in chat ${numericChatId}. Chat involves artist_id: ${chat.artist_user_id} and employer_id: ${chat.employer_user_id}`);
+      console.warn(`Sender User ID ${senderId} is not an active artist or employer participant in chat ${numericChatId}. Chat involves artist_id: ${chat.artist_user_id} and employer_id: ${chat.employer_user_id}`);
       return void res.status(403).json({ message: 'Sender is not a recognized participant in this chat.' });
     }
 
+    // Create the message
     const newMessage = await Message.create({
       chat_id: numericChatId,
-      sender_id: numericSenderId,
+      sender_id: senderId,
       receiver_id: receiver_user_id,
       message: message.trim(),
     });
 
-    // Increment message count and touch updated_at for the chat
-    try {
-        await chat.increment('message_count', { by: 1 });
-        // The 'updatedAt' field (model attribute) will be automatically updated by Sequelize
-        // if timestamps: true is set on the Chat model and the save operation happens.
-        // To ensure it's updated even if no other fields changed on the `chat` instance in memory:
-        chat.changed('updatedAt', true); // Mark it as changed
-        await chat.save({ fields: ['updated_at'] }); // Save only updatedAt to trigger the hook/DB update
+    // --- Update chat: Increment message count and get fresh data in a transaction ---
+    let showPromptForSender = false;
+    let promptLevelForSender = 0;
 
-        console.log(`[Chat ${numericChatId}] Message count incremented and chat updatedAt touched.`);
-    } catch (updateError) { // Renamed from countError for clarity
-        console.error(`[Chat ${numericChatId}] Failed to increment message count or touch updatedAt:`, updateError);
+    try {
+      await sequelize.transaction(async (t) => {
+        await chat.increment('message_count', { by: 1, transaction: t });
+        // Reload the chat instance within the transaction to get the updated message_count
+        // and also ensure updatedAt (if handled by Sequelize timestamps) is refreshed.
+        await chat.reload({ transaction: t });
+      });
+
+      console.log(`[Chat ${numericChatId}] Message count is now ${chat.message_count}. Chat timestamp updated.`);
+
+      // Now check rating prompt status for the SENDER using the reloaded chat instance
+      let userStatusFieldForSender: 'artist_rating_status' | 'employer_rating_status' | null = null;
+
+      if (senderUserWithProfiles.artistProfile && chat.artist_user_id === senderUserWithProfiles.artistProfile.artist_id) {
+          userStatusFieldForSender = 'artist_rating_status';
+      } else if (senderUserWithProfiles.employerProfile && chat.employer_user_id === senderUserWithProfiles.employerProfile.employer_id) {
+          userStatusFieldForSender = 'employer_rating_status';
+      }
+
+      if (userStatusFieldForSender) {
+          const senderCurrentRatingStatus = chat[userStatusFieldForSender];
+          const currentMessageCount = chat.message_count; // Use the reloaded count
+
+          if (senderCurrentRatingStatus === 'pending' && currentMessageCount >= 10) {
+              showPromptForSender = true;
+              promptLevelForSender = 10;
+          } else if (senderCurrentRatingStatus === 'prompted_10' && currentMessageCount >= 20) {
+              showPromptForSender = true;
+              promptLevelForSender = 20;
+          }
+          console.log(`[SendMessage Prompt Check] For User ${senderId} in Chat ${chat.chat_id}: MessageCount=${currentMessageCount}, Status=${senderCurrentRatingStatus}, ShowPrompt=${showPromptForSender}`);
+      }
+
+    } catch (updateError) {
+        console.error(`[Chat ${numericChatId}] Failed to increment message count/reload chat or check prompt status:`, updateError);
+        // Don't fail the entire message sending if this part errors, but log it.
     }
+    // --- End Update ---
 
     return void res.status(201).json({
       message: 'Message sent successfully',
       data: newMessage,
+      // --- ADDED prompt status to response ---
+      showPromptForSender: showPromptForSender,
+      promptLevelForSender: promptLevelForSender
+      // --- END ADDITION ---
     });
   } catch (error) {
     console.error('❌ Error in sendMessage:', error);
     return void res.status(500).json({ message: 'Internal server error.' });
   }
 };
-
 /* -------------------------------------------------------------------------- */
 /* GET CHAT HISTORY                                                            */
 /* -------------------------------------------------------------------------- */
