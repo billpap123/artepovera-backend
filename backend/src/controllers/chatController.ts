@@ -147,11 +147,10 @@ export const sendMessage = async (req: Request, res: Response): Promise<void> =>
       return void res.status(404).json({ message: 'Chat not found.' });
     }
 
-    // Fetch the sender's User model along with their Artist/Employer profile IDs
     const senderUserWithProfiles = await User.findByPk(numericSenderId, {
       include: [
-        { model: Artist, as: 'artistProfile', attributes: ['artist_id'] }, // Get sender's artist_id
-        { model: Employer, as: 'employerProfile', attributes: ['employer_id'] } // Get sender's employer_id
+        { model: Artist, as: 'artistProfile', attributes: ['artist_id'] },
+        { model: Employer, as: 'employerProfile', attributes: ['employer_id'] }
       ]
     });
 
@@ -161,54 +160,44 @@ export const sendMessage = async (req: Request, res: Response): Promise<void> =>
 
     let receiver_user_id: number; // This needs to be the User.user_id of the recipient
 
-    // chat.artist_user_id stores an Artist.artist_id (PK of artists table)
-    // chat.employer_user_id stores an Employer.employer_id (PK of employers table)
-
-    // Check if the SENDER is the ARTIST associated with THIS CHAT
     if (senderUserWithProfiles.artistProfile && chat.artist_user_id === senderUserWithProfiles.artistProfile.artist_id) {
-      // Sender is the Artist participant in this chat. Receiver is the Employer's User.
-      const employerProfileInChat = await Employer.findByPk(chat.employer_user_id, {
-        attributes: ['user_id'] // We need the user_id associated with this employer profile
-      });
+      const employerProfileInChat = await Employer.findByPk(chat.employer_user_id, { attributes: ['user_id'] });
       if (!employerProfileInChat) {
         console.error(`Chat ${numericChatId}: Could not find Employer profile for employer_id ${chat.employer_user_id}`);
         return void res.status(404).json({ message: "Chat partner (Employer profile) not found for this chat." });
       }
       receiver_user_id = employerProfileInChat.user_id;
-    }
-    // Check if the SENDER is the EMPLOYER associated with THIS CHAT
-    else if (senderUserWithProfiles.employerProfile && chat.employer_user_id === senderUserWithProfiles.employerProfile.employer_id) {
-      // Sender is the Employer participant in this chat. Receiver is the Artist's User.
-      const artistProfileInChat = await Artist.findByPk(chat.artist_user_id, {
-        attributes: ['user_id'] // We need the user_id associated with this artist profile
-      });
+    } else if (senderUserWithProfiles.employerProfile && chat.employer_user_id === senderUserWithProfiles.employerProfile.employer_id) {
+      const artistProfileInChat = await Artist.findByPk(chat.artist_user_id, { attributes: ['user_id'] });
       if (!artistProfileInChat) {
         console.error(`Chat ${numericChatId}: Could not find Artist profile for artist_id ${chat.artist_user_id}`);
         return void res.status(404).json({ message: 'Chat partner (Artist profile) not found for this chat.' });
       }
       receiver_user_id = artistProfileInChat.user_id;
     } else {
-      // Sender (User.user_id = numericSenderId) is not the artist OR the employer specifically linked to this chat.
       console.warn(`Sender User ID ${numericSenderId} is not an active artist or employer participant in chat ${numericChatId}. Chat involves artist_id: ${chat.artist_user_id} and employer_id: ${chat.employer_user_id}`);
       return void res.status(403).json({ message: 'Sender is not a recognized participant in this chat.' });
     }
 
-    // Create the message
     const newMessage = await Message.create({
       chat_id: numericChatId,
-      sender_id: numericSenderId,     // This is User.user_id of the sender
-      receiver_id: receiver_user_id,  // This is now correctly a User.user_id of the recipient
+      sender_id: numericSenderId,
+      receiver_id: receiver_user_id,
       message: message.trim(),
     });
 
     // Increment message count and touch updated_at for the chat
     try {
         await chat.increment('message_count', { by: 1 });
-        chat.changed('updatedAt', true); // Use camelCase model attribute name
-        await chat.save({ fields: ['updated_at', 'message_count'] });
+        // The 'updatedAt' field (model attribute) will be automatically updated by Sequelize
+        // if timestamps: true is set on the Chat model and the save operation happens.
+        // To ensure it's updated even if no other fields changed on the `chat` instance in memory:
+        chat.changed('updatedAt', true); // Mark it as changed
+        await chat.save({ fields: ['updated_at'] }); // Save only updatedAt to trigger the hook/DB update
+
         console.log(`[Chat ${numericChatId}] Message count incremented and chat updatedAt touched.`);
-    } catch (countError) {
-        console.error(`[Chat ${numericChatId}] Failed to increment message count or touch updatedAt:`, countError);
+    } catch (updateError) { // Renamed from countError for clarity
+        console.error(`[Chat ${numericChatId}] Failed to increment message count or touch updatedAt:`, updateError);
     }
 
     return void res.status(201).json({
