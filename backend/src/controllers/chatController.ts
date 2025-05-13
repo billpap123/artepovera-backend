@@ -418,9 +418,9 @@ export const fetchMessages = async (req: CustomRequest, res: Response): Promise<
 export const getRatingPromptStatus = async (req: CustomRequest, res: Response): Promise<void> => {
   try {
       const { chat_id } = req.params;
-      const userId = req.user?.id; // Logged-in user ID from token
+      const loggedInUserId = req.user?.id; // User.user_id from token
 
-      if (!userId) {
+      if (!loggedInUserId) {
           return void res.status(401).json({ message: 'Unauthorized: User ID missing.' });
       }
       if (!chat_id || isNaN(parseInt(chat_id, 10))) {
@@ -428,125 +428,145 @@ export const getRatingPromptStatus = async (req: CustomRequest, res: Response): 
       }
 
       const chatIdNum = parseInt(chat_id, 10);
+      console.log(`[Rating Status] Checking for chat_id: ${chatIdNum}, by loggedInUserId: ${loggedInUserId}`);
 
       const chat = await Chat.findByPk(chatIdNum);
       if (!chat) {
+          console.warn(`[Rating Status] Chat not found for chat_id: ${chatIdNum}`);
           return void res.status(404).json({ message: 'Chat not found.' });
       }
 
-      // Determine which status field belongs to the current user
-      let userStatusField: 'artist_rating_status' | 'employer_rating_status' | null = null;
-      if (chat.artist_user_id === userId) {
-          userStatusField = 'artist_rating_status';
-      } else if (chat.employer_user_id === userId) {
-          userStatusField = 'employer_rating_status';
-      } else {
-          // Should not happen if authentication is correct, but good practice to check
-          return void res.status(403).json({ message: 'User is not a participant in this chat.' });
+      console.log(`[Rating Status] Chat ${chatIdNum} record - artist_user_id (Artist PK): ${chat.artist_user_id}, employer_user_id (Employer PK): ${chat.employer_user_id}`);
+
+      // Fetch the logged-in user's Artist and Employer profile IDs
+      const userWithProfiles = await User.findByPk(loggedInUserId, {
+          include: [
+              { model: Artist, as: 'artistProfile', attributes: ['artist_id'] },
+              { model: Employer, as: 'employerProfile', attributes: ['employer_id'] }
+          ]
+      });
+
+      if (!userWithProfiles) {
+          console.warn(`[Rating Status] User profile not found for loggedInUserId: ${loggedInUserId}`);
+          return void res.status(404).json({ message: "User profile not found."});
       }
 
-      const currentUserStatus = chat[userStatusField];
-      const messageCount = chat.message_count;
+      console.log(`[Rating Status] LoggedInUser (${loggedInUserId}) - Artist Profile ID: ${userWithProfiles.artistProfile?.artist_id}, Employer Profile ID: ${userWithProfiles.employerProfile?.employer_id}`);
 
+      let userStatusField: 'artist_rating_status' | 'employer_rating_status' | null = null;
+
+      // Compare logged-in user's actual Artist PK with the Artist PK stored in the chat
+      if (userWithProfiles.artistProfile && chat.artist_user_id === userWithProfiles.artistProfile.artist_id) {
+          userStatusField = 'artist_rating_status';
+          console.log("[Rating Status] Matched as Artist participant.");
+      // Compare logged-in user's actual Employer PK with the Employer PK stored in the chat
+      } else if (userWithProfiles.employerProfile && chat.employer_user_id === userWithProfiles.employerProfile.employer_id) {
+          userStatusField = 'employer_rating_status';
+          console.log("[Rating Status] Matched as Employer participant.");
+      } else {
+          console.warn(`[Rating Status] User ${loggedInUserId} (Artist Profile ID: ${userWithProfiles.artistProfile?.artist_id}, Employer Profile ID: ${userWithProfiles.employerProfile?.employer_id}) is NOT the direct artist (Chat's Artist PK: ${chat.artist_user_id}) OR employer (Chat's Employer PK: ${chat.employer_user_id}) for chat ${chat_id}. Returning 403.`);
+          return void res.status(403).json({ message: 'User is not a direct participant in this chat.' });
+      }
+
+      const currentUserStatus = chat[userStatusField]; // This is now safe
+      const messageCount = chat.message_count;
       let showPrompt = false;
       let level = 0;
 
-      // Check conditions based on status and message count
       if (currentUserStatus === 'pending' && messageCount >= 10) {
           showPrompt = true;
           level = 10;
       } else if (currentUserStatus === 'prompted_10' && messageCount >= 20) {
-          // User clicked 'Maybe Later' at 10 messages, prompt again at 20
           showPrompt = true;
           level = 20;
       }
 
-      console.log(`[Rating Prompt Check] Chat: ${chatIdNum}, User: ${userId}, Count: ${messageCount}, Status: ${currentUserStatus}, Show: ${showPrompt}`);
+      console.log(`[Rating Prompt Check] Chat: ${chatIdNum}, User: ${loggedInUserId}, Count: ${messageCount}, Status: ${currentUserStatus}, Show: ${showPrompt}`);
       return void res.status(200).json({ showPrompt, level });
 
-  } catch (error) {
+  } catch (error: any) {
       console.error(`❌ Error getting rating prompt status for chat ${req.params.chat_id}:`, error);
-      return void res.status(500).json({ message: 'Internal server error.' });
+      return void res.status(500).json({ message: 'Internal server error.', error: error.message});
   }
 };
 
 
 /* -------------------------------------------------------------------------- */
-/* UPDATE RATING PROMPT STATUS                                                 */
+/* UPDATE RATING PROMPT STATUS (Corrected)                                    */
 /* -------------------------------------------------------------------------- */
 // PUT /api/chats/:chat_id/rating-status
-// Body: { action: 'maybe_later' | 'declined' }
-// Updates the user's rating status based on their interaction with the prompt.
 export const updateRatingPromptStatus = async (req: CustomRequest, res: Response): Promise<void> => {
   try {
       const { chat_id } = req.params;
-      const userId = req.user?.id; // Logged-in user ID
-      const { action } = req.body; // 'maybe_later' or 'declined'
+      const loggedInUserId = req.user?.id; // User.user_id from token
+      const { action } = req.body;
 
-      // --- Validation ---
-      if (!userId) {
-          return void res.status(401).json({ message: 'Unauthorized: User ID missing.' });
-      }
-      if (!chat_id || isNaN(parseInt(chat_id, 10))) {
-          return void res.status(400).json({ message: 'Invalid chat ID.' });
-      }
-      if (!action || (action !== 'maybe_later' && action !== 'declined')) {
-          return void res.status(400).json({ message: 'Invalid action specified. Use "maybe_later" or "declined".' });
-      }
-      // --- End Validation ---
+      if (!loggedInUserId) { return void res.status(401).json({ message: 'Unauthorized: User ID missing.' }); }
+      if (!chat_id || isNaN(parseInt(chat_id, 10))) { return void res.status(400).json({ message: 'Invalid chat ID.' }); }
+      if (!action || (action !== 'maybe_later' && action !== 'declined')) { return void res.status(400).json({ message: 'Invalid action. Use "maybe_later" or "declined".' }); }
 
       const chatIdNum = parseInt(chat_id, 10);
+      console.log(`[Rating Status Update] Attempt for chat_id: ${chatIdNum}, by loggedInUserId: ${loggedInUserId}, action: ${action}`);
+
       const chat = await Chat.findByPk(chatIdNum);
       if (!chat) {
+          console.warn(`[Rating Status Update] Chat not found for chat_id: ${chatIdNum}`);
           return void res.status(404).json({ message: 'Chat not found.' });
       }
+      console.log(`[Rating Status Update] Chat ${chatIdNum} record - artist_user_id (Artist PK): ${chat.artist_user_id}, employer_user_id (Employer PK): ${chat.employer_user_id}`);
 
-      // Determine which status field to update
+
+      const userWithProfiles = await User.findByPk(loggedInUserId, {
+        include: [
+            { model: Artist, as: 'artistProfile', attributes: ['artist_id'] },
+            { model: Employer, as: 'employerProfile', attributes: ['employer_id'] }
+        ]
+      });
+      if (!userWithProfiles) {
+          console.warn(`[Rating Status Update] User profile not found for loggedInUserId: ${loggedInUserId}`);
+          return void res.status(404).json({ message: "User profile not found."});
+      }
+      console.log(`[Rating Status Update] LoggedInUser (${loggedInUserId}) - Artist Profile ID: ${userWithProfiles.artistProfile?.artist_id}, Employer Profile ID: ${userWithProfiles.employerProfile?.employer_id}`);
+
       let userStatusField: 'artist_rating_status' | 'employer_rating_status' | null = null;
-      if (chat.artist_user_id === userId) {
+
+      if (userWithProfiles.artistProfile && chat.artist_user_id === userWithProfiles.artistProfile.artist_id) {
           userStatusField = 'artist_rating_status';
-      } else if (chat.employer_user_id === userId) {
+          console.log("[Rating Status Update] Matched as Artist participant.");
+      } else if (userWithProfiles.employerProfile && chat.employer_user_id === userWithProfiles.employerProfile.employer_id) {
           userStatusField = 'employer_rating_status';
+          console.log("[Rating Status Update] Matched as Employer participant.");
       } else {
-          return void res.status(403).json({ message: 'User is not a participant in this chat.' });
+          console.warn(`[Rating Status Update] User ${loggedInUserId} (Artist Profile ID: ${userWithProfiles.artistProfile?.artist_id}, Employer Profile ID: ${userWithProfiles.employerProfile?.employer_id}) is NOT the direct artist (Chat's Artist PK: ${chat.artist_user_id}) OR employer (Chat's Employer PK: ${chat.employer_user_id}) for chat ${chat_id}. Returning 403.`);
+          return void res.status(403).json({ message: 'User is not a direct participant in this chat.' });
       }
 
-      const currentStatus = chat[userStatusField];
+      const currentStatus = chat[userStatusField]; // Safe due to check above
       let newStatus: typeof currentStatus | null = null;
 
-      // Determine the new status based on action and current status
       if (action === 'declined') {
-          // If user declines, mark as declined regardless of current state (unless completed)
-          if (currentStatus !== 'completed') {
-               newStatus = 'declined';
-          }
+          if (currentStatus !== 'completed') { newStatus = 'declined'; }
       } else if (action === 'maybe_later') {
-          if (currentStatus === 'pending') {
-              newStatus = 'prompted_10'; // They deferred the first prompt
-          } else if (currentStatus === 'prompted_10') {
-              newStatus = 'prompted_20'; // They deferred the second prompt
-          }
-          // If already prompted_20, declined, or completed, 'maybe_later' does nothing further
+          if (currentStatus === 'pending') { newStatus = 'prompted_10'; }
+          else if (currentStatus === 'prompted_10') { newStatus = 'prompted_20'; }
       }
 
-      // Only update if the status needs changing
       if (newStatus && newStatus !== currentStatus) {
           try {
               await chat.update({ [userStatusField]: newStatus });
-              console.log(`[Rating Status Update] Chat: ${chatIdNum}, User: ${userId}, Status updated to: ${newStatus}`);
+              console.log(`[Rating Status Update] Chat: ${chatIdNum}, User: ${loggedInUserId}, Status updated from '${currentStatus}' to: '${newStatus}'`);
               return void res.status(200).json({ message: 'Rating prompt status updated.', newStatus: newStatus });
-          } catch(updateError) {
-               console.error(`[Rating Status Update] Failed to update status for Chat ${chatIdNum}, User ${userId}:`, updateError);
-               // Let generic error handler catch this
-               throw updateError;
+          } catch(updateError: any) {
+               console.error(`[Rating Status Update] Failed to update status for Chat ${chatIdNum}, User ${loggedInUserId}:`, updateError);
+               res.status(500).json({ message: "Failed to update rating status.", error: updateError.message }); return;
           }
       } else {
-          console.log(`[Rating Status Update] No status change needed for Chat: ${chatIdNum}, User: ${userId}, Action: ${action}, Current Status: ${currentStatus}`);
+          console.log(`[Rating Status Update] No status change needed for Chat: ${chatIdNum}, User: ${loggedInUserId}, Action: ${action}, Current Status: ${currentStatus}`);
           return void res.status(200).json({ message: 'No status change applied.', currentStatus: currentStatus });
       }
 
-  } catch (error) {
+  } catch (error: any) {
       console.error(`❌ Error updating rating prompt status for chat ${req.params.chat_id}:`, error);
-      return void res.status(500).json({ message: 'Internal server error.' });
+      return void res.status(500).json({ message: 'Internal server error.', error: error.message });
   }
 };
