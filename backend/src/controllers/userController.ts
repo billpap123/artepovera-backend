@@ -191,7 +191,7 @@ export const getCurrentUser = async (req: CustomRequest, res: Response) => {
         {
           model: Artist,
           as: 'artistProfile',
-          attributes: ['artist_id', 'bio', 'profile_picture', 'is_student'],
+          attributes: ['artist_id', 'bio', 'profile_picture', 'is_student', 'cv_url', 'cv_public_id'], // <<< ADD cv_url, cv_public_id
           required: false
         },
         {

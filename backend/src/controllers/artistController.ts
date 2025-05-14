@@ -277,3 +277,136 @@ export const getArtistsWithLocation = async (req: Request, res: Response, next: 
     res.status(500).json({ message: 'Internal server error' });
   }
 };
+
+// --- ADD NEW CV UPLOAD/UPDATE FUNCTION ---
+export const uploadOrUpdateArtistCv = async (req: CustomRequest, res: Response): Promise<void> => {
+  const userId = req.user?.id;
+  const file = req.file; // From multer upload.single('cv')
+
+  if (!userId) {
+      res.status(401).json({ message: 'Unauthorized' });
+      return;
+  }
+  if (!file) {
+      res.status(400).json({ message: 'CV file (PDF) is required.' });
+      return;
+  }
+  // Double check mimetype if multer filter wasn't strict enough (it should be)
+  if (file.mimetype !== 'application/pdf') {
+      res.status(400).json({ message: 'Invalid file type. Only PDF is allowed for CV.' });
+      return;
+  }
+
+  try {
+      const artist = await Artist.findOne({ where: { user_id: userId } });
+      if (!artist) {
+          res.status(404).json({ message: 'Artist profile not found.' });
+          return;
+      }
+
+      // If artist already has a CV, delete the old one from Cloudinary
+      if (artist.cv_public_id) {
+          try {
+              console.log(`[CV Upload] Deleting old CV from Cloudinary: ${artist.cv_public_id}`);
+              // For PDFs uploaded as 'image' or 'raw' type to Cloudinary.
+              // 'raw' is safer if no transformations are needed for PDFs.
+              // If you specified 'image' for PDF in getFileTypeDetails, use 'image'.
+              await cloudinary.uploader.destroy(artist.cv_public_id, { resource_type: 'raw' }); // Or 'image'
+          } catch (deleteError) {
+              console.error(`[CV Upload] Failed to delete old CV ${artist.cv_public_id} from Cloudinary:`, deleteError);
+              // Continue with uploading the new one
+          }
+      }
+
+      // Upload new CV to Cloudinary
+      console.log(`[CV Upload] Uploading new CV for artist_id: ${artist.artist_id}, filename: ${file.originalname}`);
+      const uploadPromise = new Promise<UploadApiResponse | undefined>((resolve, reject) => {
+          const stream = cloudinary.uploader.upload_stream(
+              {
+                  folder: "artist_cvs",
+                  resource_type: "raw", // Upload PDFs as raw files. Or 'image' if you want transformations.
+                  format: "pdf" // Optional: specify format
+              },
+              (error, result) => {
+                  if (result) { resolve(result); }
+                  else { reject(error || new Error('Cloudinary CV upload failed.')); }
+              }
+          );
+          stream.end(file.buffer);
+      });
+
+      const cloudinaryResult = await uploadPromise;
+      if (!cloudinaryResult) {
+          throw new Error('Cloudinary CV upload returned undefined result.');
+      }
+
+      // Update artist record with new CV URL and Public ID
+      artist.cv_url = cloudinaryResult.secure_url;
+      artist.cv_public_id = cloudinaryResult.public_id;
+      await artist.save();
+
+      console.log(`[CV Upload] CV for artist_id: ${artist.artist_id} updated. URL: ${artist.cv_url}`);
+      res.status(200).json({
+          message: 'CV uploaded successfully!',
+          cv_url: artist.cv_url,
+          cv_public_id: artist.cv_public_id // Good to send back for reference
+      });
+
+  } catch (error: any) {
+      console.error("Error uploading/updating artist CV:", error);
+      if (error.http_code) { // Cloudinary error
+          res.status(error.http_code).json({ message: error.message || 'Cloudinary error during CV upload.' });
+      } else {
+          res.status(500).json({ message: 'Failed to upload CV.', error: error.message });
+      }
+  }
+};
+// --- END NEW CV UPLOAD/UPDATE FUNCTION ---
+
+// --- ADD NEW CV DELETE FUNCTION ---
+export const deleteArtistCv = async (req: CustomRequest, res: Response): Promise<void> => {
+  const userId = req.user?.id;
+  if (!userId) {
+      res.status(401).json({ message: 'Unauthorized' });
+      return;
+  }
+
+  try {
+      const artist = await Artist.findOne({ where: { user_id: userId } });
+      if (!artist) {
+          res.status(404).json({ message: 'Artist profile not found.' });
+          return;
+      }
+
+      if (!artist.cv_url || !artist.cv_public_id) {
+          res.status(404).json({ message: 'No CV found to delete.' });
+          return;
+      }
+
+      const publicIdToDelete = artist.cv_public_id;
+
+      // Delete from Cloudinary
+      console.log(`[CV Delete] Deleting CV from Cloudinary: ${publicIdToDelete}`);
+      try {
+          // Ensure correct resource_type, for PDFs often 'raw' or 'image'
+          await cloudinary.uploader.destroy(publicIdToDelete, { resource_type: 'raw' }); // Or 'image'
+          console.log(`[CV Delete] CV ${publicIdToDelete} deleted from Cloudinary.`);
+      } catch (deleteError) {
+          console.error(`[CV Delete] Failed to delete CV ${publicIdToDelete} from Cloudinary:`, deleteError);
+          // Proceed to clear DB fields even if Cloudinary delete fails, to allow re-upload.
+          // Or, you could return an error here and not update DB if Cloudinary fails.
+      }
+
+      // Clear fields in database
+      artist.cv_url = null;
+      artist.cv_public_id = null;
+      await artist.save();
+
+      res.status(200).json({ message: 'CV deleted successfully.' });
+
+  } catch (error: any) {
+      console.error("Error deleting artist CV:", error);
+      res.status(500).json({ message: 'Failed to delete CV.', error: error.message });
+  }
+};
+// --- END NEW CV DELETE FUNCTION ---

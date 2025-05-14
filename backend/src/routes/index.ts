@@ -56,7 +56,20 @@ router.get('/artists', authenticate, artistController.getArtistsWithLocation);
 // --- CORRECTED PATH for deleting artist picture ---
 router.delete('/artists/profile/picture', authenticate, artistController.deleteArtistProfilePicture);
 // --- END CORRECTION ---
+// --- ADD NEW CV ROUTES FOR ARTIST PROFILE ---
+router.post(
+  '/artists/profile/cv',
+  authenticate,
+  upload.single('cv'), // Middleware to handle 'cv' file field from FormData
+  artistController.uploadOrUpdateArtistCv
+);
 
+router.delete(
+  '/artists/profile/cv',
+  authenticate,
+  artistController.deleteArtistCv
+);
+// --- END NEW CV ROUTES ---
 
 // --- Employer-specific routes (protected) ---
 router.post('/employers/profile', authenticate, upload.single('profile_picture'), employerController.updateEmployerProfile);
