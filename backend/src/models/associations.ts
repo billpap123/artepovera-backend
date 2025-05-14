@@ -6,6 +6,7 @@ import Chat from './Chat';
 import Message from './Message';
 import JobPosting from './JobPosting';
 import Review from './Review';
+import Portfolio from './Portfolio'; // Add this if not already there
 
 // 1) User <-> Artist Profile
 User.hasOne(Artist, { foreignKey: 'user_id', as: 'artistProfile' });
@@ -74,3 +75,20 @@ User.hasMany(Review, { foreignKey: 'reviewed_user_id', as: 'reviewsReceived' });
 
 // Make sure this file is imported ONCE in your application (e.g., in server.ts)
 // AFTER all models are defined.
+
+
+// ADD THESE ASSOCIATIONS FOR PORTFOLIO
+// A Portfolio item belongs to one Artist
+Portfolio.belongsTo(Artist, {
+  foreignKey: 'artist_id', // This is the FK attribute name in your Portfolio model
+  targetKey: 'artist_id',  // This is the PK attribute name in your Artist model
+  as: 'artist'             // This alias MUST match the 'as' in your controller's include
+});
+
+// An Artist can have many Portfolio items (optional but good for completeness)
+Artist.hasMany(Portfolio, {
+  foreignKey: 'artist_id',  // The FK attribute name in your Portfolio model
+  sourceKey: 'artist_id',   // The PK attribute name in your Artist model
+  as: 'portfolioItems'     // Alias for accessing portfolio items from an Artist instance
+});
+// --- END PORTFOLIO ASSOCIATIONS ---
