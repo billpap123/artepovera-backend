@@ -329,25 +329,26 @@ export const uploadOrUpdateArtistCv = async (req: CustomRequest, res: Response):
 
       // Upload new CV to Cloudinary
       console.log(`[CV UPLOAD - 6] Uploading new CV to Cloudinary. Original filename: ${file.originalname}`);
-      const uploadPromise = new Promise<UploadApiResponse | undefined>((resolve, reject) => {
-          const stream = cloudinary.uploader.upload_stream(
-              {
-                  folder: "artist_cvs",
-                  resource_type: "raw", // Upload PDFs as 'raw' files
-                  // --- ADD THIS LINE TO MAKE IT PUBLICLY ACCESSIBLE ---
-                  access_mode: "public",
-                  // --- END ADD ---
-                  format: "pdf" // Optional: can help Cloudinary
-              },
-              (error, result) => {
-                  if (result) { resolve(result); }
-                  else { reject(error || new Error('Cloudinary CV upload stream failed.')); }
-              }
-          );
-          stream.end(file.buffer);
-      });
+    const uploadPromise = new Promise<UploadApiResponse | undefined>((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+            {
+                folder: "artist_cvs",
+                resource_type: "raw",     // Correct for PDFs as generic files
+                // access_mode: "public", // We tried this, let's try specifying 'type' if 'public' isn't enough
+                type: "upload",           // <<< TRY ADDING THIS explicitly to ensure public delivery type
+                                          // This tells Cloudinary to store it in a way that's publicly accessible via the standard 'upload' path segment in the URL
+                // format: "pdf"          // Not strictly needed if resource_type is 'raw' but doesn't hurt
+            },
+            (error, result) => {
+                if (result) { resolve(result); }
+                else { reject(error || new Error('Cloudinary CV upload stream failed.')); }
+            }
+        );
+        stream.end(file.buffer);
+    });
 
-      const cloudinaryResult = await uploadPromise;
+    const cloudinaryResult = await uploadPromise;
+
       if (!cloudinaryResult || !cloudinaryResult.secure_url || !cloudinaryResult.public_id) {
           console.error("[CV UPLOAD - E6] Cloudinary upload failed or did not return expected result:", cloudinaryResult);
           throw new Error('Cloudinary CV upload did not return a valid result.');
