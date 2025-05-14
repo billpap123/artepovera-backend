@@ -1,99 +1,74 @@
 // src/controllers/portfolioController.ts
 import { Request, Response } from 'express';
-import Portfolio from '../models/Portfolio';
+import Portfolio from '../models/Portfolio'; // Assume Portfolio model now has 'item_type' and 'public_id'
 import Artist from '../models/Artist';
-import { v2 as cloudinary } from 'cloudinary'; // <<< ADD Cloudinary import
-import { UploadApiResponse } from 'cloudinary'; // <<< ADD Cloudinary type import
-// REMOVED: import multer from 'multer';
-// REMOVED: import path from 'path';
-// REMOVED: import fs from 'fs';
-import { CustomRequest } from '../middleware/authMiddleware'; // Keep Custom Request
+import { v2 as cloudinary } from 'cloudinary';
+import { UploadApiResponse, ResourceType } from 'cloudinary'; // ENSURE ResourceType IS IMPORTED
+import { CustomRequest } from '../middleware/authMiddleware';
 
-// --- REMOVED OLD MULTER/FS CONFIGURATION ---
-// const defaultUploadsDir = ...
-// if (!fs.existsSync...
-// const storage = multer.diskStorage({...});
-// const fileFilter = (...) => {...};
-// export const upload = multer({...}); // REMOVE export - use instance from server.ts in routes
+// --- ADDED: Helper to determine item_type and Cloudinary resource_type ---
+type PortfolioItemType = 'image' | 'pdf' | 'video' | 'other';
 
-// --- Helper to attempt extracting public_id (Use with caution or store public_id in DB) ---
+const getFileTypeDetails = (mimetype: string): { itemType: PortfolioItemType, resourceType: ResourceType } => {
+    if (mimetype.startsWith('image/')) return { itemType: 'image', resourceType: 'image' };
+    if (mimetype === 'application/pdf') return { itemType: 'pdf', resourceType: 'image' }; // Cloudinary often treats PDFs as 'image' or 'raw'. Using 'image' allows some transformations.
+    if (mimetype.startsWith('video/')) return { itemType: 'video', resourceType: 'video' };
+    return { itemType: 'other', resourceType: 'raw' };
+};
+// --- END ADDED HELPER ---
+
+// --- Helper to attempt extracting public_id (Keep your existing version) ---
 function extractPublicIdFromUrl(imageUrl: string | null | undefined): string | null {
     if (!imageUrl) return null;
     try {
         const url = new URL(imageUrl);
-        // Example path: /cloud_name/image/upload/v12345/folder/public_id.jpg
-        // More robustly find part after /upload/ and before final extension
         const pathSegments = url.pathname.split('/');
         const uploadIndex = pathSegments.indexOf('upload');
         if (uploadIndex === -1 || uploadIndex + 1 >= pathSegments.length) {
             console.warn(`Could not find '/upload/' segment in Cloudinary URL: ${imageUrl}`);
-            return null; // Or try a simpler extraction
+            return null;
         }
-        // Look for a version segment (v followed by numbers)
         const versionIndex = pathSegments.findIndex((part, index) => index > uploadIndex && /^v\d+$/.test(part));
-
         let publicIdWithExtension;
         if (versionIndex > -1 && versionIndex < pathSegments.length - 1) {
-             // Assumes public_id is everything after version
              publicIdWithExtension = pathSegments.slice(versionIndex + 1).join('/');
         } else if (uploadIndex < pathSegments.length - 1){
-             // Fallback: Assume everything after /upload/ is folder/public_id.ext
-             // This might fail if there are transformations in the URL before version/public_id
              publicIdWithExtension = pathSegments.slice(uploadIndex + 1).join('/');
-        } else {
-            return null; // Cannot determine public_id structure
-        }
-
+        } else { return null; }
         const lastDotIndex = publicIdWithExtension.lastIndexOf('.');
-        if (lastDotIndex > -1) {
-            return publicIdWithExtension.substring(0, lastDotIndex); // Return path without extension
-        }
-        // Handle cases without extension? Less common for uploads.
-        return publicIdWithExtension;
-
-    } catch (e) {
-        console.error("Error parsing Cloudinary URL to extract public_id:", e);
-        return null;
-    }
-    // NOTE: Storing the 'public_id' returned from the Cloudinary upload response
-    // in your database alongside the 'image_url' is a much more reliable way
-    // to get the ID for deletion than parsing the URL.
+        return (lastDotIndex > -1) ? publicIdWithExtension.substring(0, lastDotIndex) : publicIdWithExtension;
+    } catch (e) { console.error("Error parsing Cloudinary URL to extract public_id:", e); return null; }
 }
 // --- End Helper ---
 
 
-// ─────────────────────────────────────────────────────────────
-// CREATE A NEW PORTFOLIO ITEM (for the currently logged-in artist)
-// ─────────────────────────────────────────────────────────────
+// CREATE A NEW PORTFOLIO ITEM
 export const createPortfolioItem = async (req: CustomRequest, res: Response): Promise<void> => {
   try {
     const { description } = req.body;
-    const file = req.file; // File is in memory thanks to memoryStorage
+    const file = req.file;
 
     if (!file) {
-      res.status(400).json({ message: 'Image file is required' });
+      res.status(400).json({ message: 'File (image, PDF, or video) is required' }); // Generic message
       return;
     }
-
     const userId = req.user?.id;
-    if (!userId) {
-      res.status(401).json({ message: 'Unauthorized: User not found in token' });
-      return;
-    }
-
+    if (!userId) { res.status(401).json({ message: 'Unauthorized: User not found in token' }); return; }
     const artist = await Artist.findOne({ where: { user_id: userId } });
-    if (!artist) {
-      res.status(404).json({ message: 'Artist profile not found. Cannot add portfolio item.' });
-      return;
+    if (!artist) { res.status(404).json({ message: 'Artist profile not found. Cannot add portfolio item.' }); return; }
+
+    const { itemType, resourceType } = getFileTypeDetails(file.mimetype); // Determine types
+
+    console.log(`[UPLOAD] Received portfolio file for artist: ${artist.artist_id}, mimetype: ${file.mimetype}, resourceType: ${resourceType}`);
+
+    const uploadOptions: any = { folder: "portfolio_items", resource_type: resourceType };
+    if (resourceType === 'video') {
+      uploadOptions.chunk_size = 6000000; // Example: 6MB chunks for large videos
+      // Add other video-specific upload options if needed
     }
 
-    console.log(`[UPLOAD] Received portfolio image for artist: ${artist.artist_id}, size: ${file.size}`);
-
-    // Upload image buffer to Cloudinary
     const uploadPromise = new Promise<UploadApiResponse | undefined>((resolve, reject) => {
-      const stream = cloudinary.uploader.upload_stream(
-        { folder: "portfolio_items" }, // Optional: Organize in Cloudinary
-        (error, result) => {
+      const stream = cloudinary.uploader.upload_stream( uploadOptions, (error, result) => {
           if (result) { resolve(result); } else { reject(error || new Error('Cloudinary upload failed.')); }
         }
       );
@@ -101,260 +76,179 @@ export const createPortfolioItem = async (req: CustomRequest, res: Response): Pr
     });
 
     const result = await uploadPromise;
-     if (!result) {
-         throw new Error("Cloudinary upload returned undefined result.");
-     }
-    const imageUrl = result.secure_url; // Get the Cloudinary URL
-    // const publicId = result.public_id; // <<< Consider storing this too!
+    if (!result) { throw new Error("Cloudinary upload returned undefined result."); }
 
-    console.log(`[UPLOAD] Cloudinary upload successful for portfolio item. URL: ${imageUrl}`);
+    const itemUrl = result.secure_url;
+    const publicId = result.public_id; // Capture Cloudinary's public_id
 
-    // Create the portfolio item using the Cloudinary URL
+    console.log(`[UPLOAD] Cloudinary upload successful. URL: ${itemUrl}, Public ID: ${publicId}, ItemType: ${itemType}`);
+
     const portfolioItem = await Portfolio.create({
       artist_id: artist.artist_id,
-      image_url: imageUrl, // <<< SAVE CLOUDINARY URL
-      // public_id: publicId, // <<< Optionally save public_id
-      description: description || '', // Use description or default
+      image_url: itemUrl,
+      description: description || '',
+      item_type: itemType,     // Save determined item_type
+      public_id: publicId,     // Save Cloudinary public_id
     });
 
-    res.status(201).json(portfolioItem);
-    // No return needed after res.json
+    res.status(201).json(portfolioItem.toJSON()); // Send back as JSON
 
   } catch (error: any) {
     console.error('Error creating portfolio item:', error);
-    // Check for Cloudinary specific errors
-    if (error && error.http_code) {
-       res.status(error.http_code).json({ message: error.message || 'Cloudinary error during creation.' });
-    } else {
-       res.status(500).json({ message: 'Failed to create portfolio item', error: error.message });
-    }
+    if (error && error.http_code) { res.status(error.http_code).json({ message: error.message || 'Cloudinary error during creation.' }); }
+    else { res.status(500).json({ message: 'Failed to create portfolio item', error: error.message }); }
   }
 };
 
-// ─────────────────────────────────────────────────────────────
-// GET PORTFOLIO ITEMS FOR A SPECIFIC ARTIST (by artistId param)
-// ─────────────────────────────────────────────────────────────
+// GET PORTFOLIO ITEMS FOR A SPECIFIC ARTIST
 export const getArtistPortfolio = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { artistId } = req.params;
-    if (!artistId) {
-        res.status(400).json({ message: 'Artist ID parameter is required.' });
-        return;
-    }
-
-    console.log(`[GET] Fetching portfolio for artistId: ${artistId}`);
+    const artistIdParam = req.params.artistId;
+    if (!artistIdParam || isNaN(parseInt(artistIdParam))) { res.status(400).json({ message: 'Valid Artist ID parameter is required.' }); return; }
+    const artistId = parseInt(artistIdParam);
 
     const portfolioItems = await Portfolio.findAll({
       where: { artist_id: artistId },
-      // include: [{ model: Artist, as: 'artist', attributes: ['bio'] }], // Include artist info if needed
-      order: [['createdAt', 'DESC']] // Example ordering
+      order: [['created_at', 'DESC']] // Ensure your model uses 'created_at' or 'createdAt'
     });
-
-    // image_url from DB is already the full Cloudinary URL, no need to construct it
-    res.status(200).json(portfolioItems);
-    // No return needed
-
+    res.status(200).json(portfolioItems.map(item => item.toJSON()));
   } catch (error: any) {
     console.error(`Error retrieving portfolio items for artist ${req.params.artistId}:`, error);
     res.status(500).json({ message: 'Failed to retrieve portfolio items', error: error.message });
   }
 };
 
-// ─────────────────────────────────────────────────────────────
 // GET PORTFOLIO ITEMS FOR THE CURRENTLY LOGGED-IN ARTIST
-// ─────────────────────────────────────────────────────────────
 export const getMyPortfolio = async (req: CustomRequest, res: Response): Promise<void> => {
   try {
     const userId = req.user?.id;
-    if (!userId) {
-      res.status(401).json({ message: 'Unauthorized: User not found in token' });
-      return;
-    }
-
+    if (!userId) { res.status(401).json({ message: 'Unauthorized: User not found in token' }); return; }
     const artist = await Artist.findOne({ where: { user_id: userId } });
-    if (!artist) {
-      // If artist profile doesn't exist, they can't have portfolio items
-      console.log(`[GET] No artist profile found for user ${userId}, returning empty portfolio.`);
-      res.status(200).json([]); // Return empty array is appropriate
-      return;
-    }
-
-    console.log(`[GET] Fetching own portfolio for artistId: ${artist.artist_id}`);
-
+    if (!artist) { res.status(200).json([]); return; }
     const portfolioItems = await Portfolio.findAll({
       where: { artist_id: artist.artist_id },
-      // include: [{ model: Artist, as: 'artist', attributes: ['bio'] }], // Optional include
-      order: [['createdAt', 'DESC']] // Example ordering
+      order: [['created_at', 'DESC']]
     });
-
-    // image_url from DB is already the full Cloudinary URL
-    res.status(200).json(portfolioItems);
-    // No return needed
-
+    res.status(200).json(portfolioItems.map(item => item.toJSON()));
   } catch (error: any) {
     console.error('Error retrieving own portfolio items:', error);
     res.status(500).json({ message: 'Failed to retrieve portfolio items', error: error.message });
   }
 };
 
-// ─────────────────────────────────────────────────────────────
 // UPDATE A PORTFOLIO ITEM
-// ─────────────────────────────────────────────────────────────
 export const updatePortfolioItem = async (req: CustomRequest, res: Response): Promise<void> => {
   try {
-    const { id } = req.params; // Portfolio item ID
+    const portfolioItemId = parseInt(req.params.id, 10);
     const { description } = req.body;
-    const file = req.file; // Potential new image file in memory
-    const userId = req.user?.id; // ID of the logged-in user
+    const file = req.file;
+    const userId = req.user?.id;
 
-    if (!userId) {
-       res.status(401).json({ message: 'Unauthorized' });
-       return;
-    }
+    if (isNaN(portfolioItemId)) { res.status(400).json({ message: 'Invalid Portfolio Item ID.'}); return; }
+    if (!userId) { res.status(401).json({ message: 'Unauthorized' }); return; }
 
-    // Find the portfolio item *and* verify ownership via artist -> user linkage
     const portfolioItem = await Portfolio.findOne({
-        where: { id: id },
-        include: [{ model: Artist, as: 'artist', where: { user_id: userId }, required: true }] // Ensure it belongs to logged in user
+        where: { portfolio_id: portfolioItemId }, // Assuming 'portfolio_id' is the PK attribute in your model
+        include: [{ model: Artist, as: 'artist', where: { user_id: userId }, required: true }]
     });
-
-    if (!portfolioItem) {
-      res.status(404).json({ message: 'Portfolio item not found or you are not authorized to update it.' });
-      return;
-    }
+    if (!portfolioItem) { res.status(404).json({ message: 'Portfolio item not found or not authorized.' }); return; }
 
     let newImageUrl: string | null = null;
-    let oldPublicId: string | null = null; // To delete old image from Cloudinary
+    let newPublicId: string | null = null;
+    let newItemType: PortfolioItemType | null = null;
+    const oldPublicId = portfolioItem.public_id; // Get from existing DB item
+    const oldItemType = portfolioItem.item_type; // Get from existing DB item
 
-    // If a new file is uploaded, process it
     if (file) {
-      console.log(`[UPLOAD] Received new image for portfolio item: ${id}`);
+      console.log(`[UPDATE] New file for portfolio item: ${portfolioItemId}, type: ${file.mimetype}`);
+      const { itemType, resourceType } = getFileTypeDetails(file.mimetype);
+      newItemType = itemType;
+      const uploadOptions: any = { folder: "portfolio_items", resource_type: resourceType };
+      if (resourceType === 'video') uploadOptions.chunk_size = 6000000;
 
-      // Store the old image URL/ID before overwriting, if attempting deletion
-      const oldImageUrl = portfolioItem.image_url;
-      // oldPublicId = extractPublicIdFromUrl(oldImageUrl); // Use helper or stored public_id
-
-      // Upload new image buffer to Cloudinary
       const uploadPromise = new Promise<UploadApiResponse | undefined>((resolve, reject) => {
-        const stream = cloudinary.uploader.upload_stream(
-          { folder: "portfolio_items" },
-          (error, result) => {
+        const stream = cloudinary.uploader.upload_stream(uploadOptions, (error, result) => {
             if (result) { resolve(result); } else { reject(error || new Error('Cloudinary upload failed.')); }
-          }
-        );
+        });
         stream.end(file.buffer);
       });
-
        try {
             const result = await uploadPromise;
             if (!result) throw new Error("Cloudinary upload returned undefined result.");
-            newImageUrl = result.secure_url; // Get the new URL
-            // const newPublicId = result.public_id; // <<< Store this if possible
-            console.log(`[UPLOAD] Cloudinary upload successful for portfolio update ${id}. URL: ${newImageUrl}`);
+            newImageUrl = result.secure_url;
+            newPublicId = result.public_id;
+       } catch (uploadError: any) { /* ... error handling ... */ return; }
+    }
 
-       } catch (uploadError: any) {
-           console.error('[ERROR] Cloudinary upload stream failed during update:', uploadError);
-           res.status(500).json({ message: 'Failed to upload new image.', error: uploadError.message });
-           return; // Stop if new upload fails
-       }
-
-    } // End if (req.file)
-
-    // Update fields
     let updated = false;
-    if (description !== undefined && portfolioItem.description !== description) {
-      portfolioItem.description = description;
-      updated = true;
-    }
-    if (newImageUrl) { // Only update URL if a new image was successfully uploaded
+    if (description !== undefined && portfolioItem.description !== description) { portfolioItem.description = description; updated = true; }
+    if (newImageUrl && newPublicId && newItemType) {
       portfolioItem.image_url = newImageUrl;
-      // portfolioItem.public_id = newPublicId; // <<< Update stored public_id too
+      portfolioItem.public_id = newPublicId;
+      portfolioItem.item_type = newItemType;
       updated = true;
     }
 
-    // Save changes if any were made
     if (updated) {
         await portfolioItem.save();
-        console.log(`[UPDATE] Portfolio item ${id} updated.`);
-
-        // --- Optional: Delete old Cloudinary image AFTER successful DB update ---
-        // Requires having the old public_id (parsed or stored)
-        // if (oldPublicId && newImageUrl) { // Only delete if replaced
-        //     try {
-        //         console.log(`[DELETE] Deleting old Cloudinary image for portfolio ${id}: ${oldPublicId}`);
-        //         await cloudinary.uploader.destroy(oldPublicId);
-        //     } catch (deleteError) {
-        //         console.error(`[WARN] Failed to delete old Cloudinary image ${oldPublicId}:`, deleteError);
-        //     }
-        // }
-        // --- End Optional Delete ---
-
-    } else {
-         console.log(`[UPDATE] No changes provided for portfolio item ${id}.`);
-    }
-
-
-    res.status(200).json(portfolioItem); // Return updated item
-
+        console.log(`[UPDATE] Portfolio item ${portfolioItemId} updated in DB.`);
+        if (oldPublicId && newImageUrl && oldPublicId !== newPublicId) {
+            const { resourceType: oldResourceType } = getFileTypeDetails(oldItemType ? `type/${oldItemType}` : 'image/jpeg');
+            try {
+                console.log(`[DELETE OLD] Deleting old Cloudinary asset: ${oldPublicId}, type: ${oldResourceType}`);
+                await cloudinary.uploader.destroy(oldPublicId, { resource_type: oldResourceType });
+            } catch (deleteError) { console.error(`[WARN] Failed to delete old Cloudinary asset ${oldPublicId}:`, deleteError); }
+        }
+    } else { console.log(`[UPDATE] No changes for portfolio item ${portfolioItemId}.`); }
+    res.status(200).json(portfolioItem.toJSON());
   } catch (error: any) {
     console.error(`Error updating portfolio item ${req.params.id}:`, error);
     res.status(500).json({ message: 'Failed to update portfolio item', error: error.message });
   }
 };
 
-// ─────────────────────────────────────────────────────────────
 // DELETE A PORTFOLIO ITEM
-// ─────────────────────────────────────────────────────────────
 export const deletePortfolioItem = async (req: CustomRequest, res: Response): Promise<void> => {
   try {
-    const { id } = req.params; // Portfolio item ID
-    const userId = req.user?.id; // Logged in user ID
+    const portfolioItemId = parseInt(req.params.id, 10);
+    const userId = req.user?.id;
+    if (isNaN(portfolioItemId)) { res.status(400).json({ message: 'Invalid Portfolio Item ID.'}); return; }
+    if (!userId) { res.status(401).json({ message: 'Unauthorized' }); return; }
 
-    if (!userId) {
-       res.status(401).json({ message: 'Unauthorized' });
-       return;
-    }
+    const portfolioItem = await Portfolio.findOne({
+        where: { portfolio_id: portfolioItemId }, // Assuming PK is 'portfolio_id'
+        include: [{ model: Artist, as: 'artist', where: { user_id: userId }, required: true }]
+    });
+    if (!portfolioItem) { res.status(404).json({ message: 'Portfolio item not found or not authorized.' }); return; }
 
-  // Find the item and verify ownership
-  const portfolioItem = await Portfolio.findOne({
-    // --- CORRECTED ---
-    where: { portfolio_id: id },
-    // --- END CORRECTION ---
-    include: [{ model: Artist, as: 'artist', where: { user_id: userId }, required: true }]
-});
+    const publicIdToDelete = portfolioItem.public_id;
+    const itemTypeToDelete = portfolioItem.item_type;
+    const { resourceType: resourceTypeToDelete } = getFileTypeDetails(
+        itemTypeToDelete ? `type/${itemTypeToDelete}` : (portfolioItem.image_url && portfolioItem.image_url.includes('.pdf') ? 'application/pdf' : 'image/jpeg')
+    );
 
-    if (!portfolioItem) {
-      res.status(404).json({ message: 'Portfolio item not found or you are not authorized to delete it.' });
-      return;
-    }
-
-    const imageUrlToDelete = portfolioItem.image_url;
-    // const publicIdToDelete = portfolioItem.public_id; // <<< Use stored public_id if available
-
-    // First, destroy the database record
     await portfolioItem.destroy();
-    console.log(`[DELETE] Portfolio item ${id} deleted from DB.`);
+    console.log(`[DELETE] Portfolio item ${portfolioItemId} deleted from DB.`);
 
-    // --- THEN, attempt to delete from Cloudinary ---
-    if (imageUrlToDelete) { // Or check publicIdToDelete if using that
-      const publicIdToDelete = extractPublicIdFromUrl(imageUrlToDelete); // Attempt parse
-      if (publicIdToDelete) {
-          try {
-              console.log(`[DELETE] Attempting to delete Cloudinary image: ${publicIdToDelete}`);
-              await cloudinary.uploader.destroy(publicIdToDelete);
-              console.log(`[DELETE] Cloudinary image ${publicIdToDelete} deleted successfully.`);
-          } catch (deleteError) {
-              // Log failure but don't fail the request, DB entry is already gone
-              console.error(`[WARN] Failed to delete Cloudinary image ${publicIdToDelete} after DB deletion:`, deleteError);
-          }
-      } else {
-           console.warn(`[DELETE] Could not determine public_id to delete Cloudinary image for deleted portfolio item ${id}. URL: ${imageUrlToDelete}`);
-      }
+    if (publicIdToDelete) {
+      try {
+        console.log(`[DELETE CLOUDINARY] Attempting for public_id: ${publicIdToDelete}, resource_type: ${resourceTypeToDelete}`);
+        await cloudinary.uploader.destroy(publicIdToDelete, { resource_type: resourceTypeToDelete });
+        console.log(`[DELETE CLOUDINARY] Asset ${publicIdToDelete} deleted successfully.`);
+      } catch (deleteError) { console.error(`[WARN] Failed to delete Cloudinary asset ${publicIdToDelete}:`, deleteError); }
+    } else {
+      const imageUrlFromDB = portfolioItem.image_url; // Fallback if public_id wasn't stored
+      if (imageUrlFromDB) {
+          const extractedPublicId = extractPublicIdFromUrl(imageUrlFromDB);
+          if (extractedPublicId) {
+              const fallbackResourceType = getFileTypeDetails(itemTypeToDelete ? `type/${itemTypeToDelete}` : 'image/jpeg').resourceType;
+              console.warn(`[DELETE CLOUDINARY] No public_id stored, attempting delete via extracted ID: ${extractedPublicId}, type: ${fallbackResourceType}`);
+              try { await cloudinary.uploader.destroy(extractedPublicId, { resource_type: fallbackResourceType }); console.log(`[DELETE CLOUDINARY] Asset ${extractedPublicId} (extracted) successfully deleted.`); }
+              catch (deleteError) { console.error(`[WARN] Failed to delete extracted Cloudinary asset ${extractedPublicId}:`, deleteError); }
+          } else { console.warn(`[DELETE CLOUDINARY] No public_id and could not extract from URL for item ${portfolioItemId}.`); }
+      } else { console.warn(`[DELETE CLOUDINARY] No public_id or image_url found for item ${portfolioItemId}.`); }
     }
-    // --- End Cloudinary Delete ---
-
-    res.status(204).send(); // Success, no content
-
+    res.status(204).send();
   } catch (error: any) {
     console.error(`Error deleting portfolio item ${req.params.id}:`, error);
     res.status(500).json({ message: 'Failed to delete portfolio item', error: error.message });
