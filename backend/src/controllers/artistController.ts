@@ -279,6 +279,9 @@ export const getArtistsWithLocation = async (req: Request, res: Response, next: 
 };
 
 // --- ADD NEW CV UPLOAD/UPDATE FUNCTION ---
+// src/controllers/artistController.ts
+// ... (keep all other imports: Request, Response, Artist, User, cloudinary, CustomRequest, UploadApiResponse, ResourceType, getFileTypeDetails, extractPublicIdFromUrl) ...
+
 export const uploadOrUpdateArtistCv = async (req: CustomRequest, res: Response): Promise<void> => {
   const userId = req.user?.id;
   const file = req.file; // From multer upload.single('cv')
@@ -315,14 +318,10 @@ export const uploadOrUpdateArtistCv = async (req: CustomRequest, res: Response):
       if (artist.cv_public_id) {
           console.log(`[CV UPLOAD - 4] Previous CV exists. Public_id: ${artist.cv_public_id}. Attempting deletion from Cloudinary.`);
           try {
-              // For PDFs, Cloudinary might treat them as 'raw' or 'image'.
-              // 'raw' is often safer for non-image files unless you need image-specific processing.
-              await cloudinary.uploader.destroy(artist.cv_public_id, { resource_type: 'raw' }); // Or 'image' if you uploaded it as such
+              await cloudinary.uploader.destroy(artist.cv_public_id, { resource_type: 'raw' }); // Assuming CVs are 'raw'
               console.log(`[CV UPLOAD - 5] Old CV ${artist.cv_public_id} deleted from Cloudinary.`);
           } catch (deleteError) {
               console.error(`[CV UPLOAD - E5] Failed to delete old CV ${artist.cv_public_id} from Cloudinary:`, deleteError);
-              // Decide if you want to stop the process or continue with uploading the new one.
-              // For now, we'll log and continue.
           }
       } else {
           console.log("[CV UPLOAD - 4] No previous CV to delete from Cloudinary.");
@@ -333,10 +332,12 @@ export const uploadOrUpdateArtistCv = async (req: CustomRequest, res: Response):
       const uploadPromise = new Promise<UploadApiResponse | undefined>((resolve, reject) => {
           const stream = cloudinary.uploader.upload_stream(
               {
-                  folder: "artist_cvs",      // Specific folder for CVs
-                  resource_type: "raw",     // Upload PDFs as 'raw' files (common for documents)
-                                            // If you want Cloudinary to try and treat it like an image (e.g., for transformations), use 'image'
-                  format: "pdf"             // Optional: can help Cloudinary
+                  folder: "artist_cvs",
+                  resource_type: "raw", // Upload PDFs as 'raw' files
+                  // --- ADD THIS LINE TO MAKE IT PUBLICLY ACCESSIBLE ---
+                  access_mode: "public",
+                  // --- END ADD ---
+                  format: "pdf" // Optional: can help Cloudinary
               },
               (error, result) => {
                   if (result) { resolve(result); }
@@ -376,6 +377,9 @@ export const uploadOrUpdateArtistCv = async (req: CustomRequest, res: Response):
       }
   }
 };
+
+// Ensure the rest of your artistController.ts (deleteArtistCv, updateArtistProfile etc.) is present here.
+// ...
 
 // --- ADD NEW CV DELETE FUNCTION ---
 export const deleteArtistCv = async (req: CustomRequest, res: Response): Promise<void> => {
