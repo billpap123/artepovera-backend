@@ -10,10 +10,10 @@ import { CustomRequest } from '../middleware/authMiddleware';
 type PortfolioItemType = 'image' | 'pdf' | 'video' | 'other';
 
 const getFileTypeDetails = (mimetype: string): { itemType: PortfolioItemType, resourceType: ResourceType } => {
-    if (mimetype.startsWith('image/')) return { itemType: 'image', resourceType: 'image' };
-    if (mimetype === 'application/pdf') return { itemType: 'pdf', resourceType: 'image' }; // Cloudinary often treats PDFs as 'image' or 'raw'. Using 'image' allows some transformations.
-    if (mimetype.startsWith('video/')) return { itemType: 'video', resourceType: 'video' };
-    return { itemType: 'other', resourceType: 'raw' };
+  if (mimetype.startsWith('image/')) return { itemType: 'image', resourceType: 'image' };
+  if (mimetype === 'application/pdf') return { itemType: 'pdf', resourceType: 'raw' }; // <<< ENSURE THIS IS 'raw'
+  if (mimetype.startsWith('video/')) return { itemType: 'video', resourceType: 'video' };
+  return { itemType: 'other', resourceType: 'raw' };
 };
 // --- END ADDED HELPER ---
 
