@@ -8,7 +8,7 @@ import Artist from '../models/Artist';
 import { CustomRequest } from '../middleware/authMiddleware'; // Keep your custom request type
 import User from '../models/User'; // Keep User import if needed elsewhere
 import { Sequelize } from 'sequelize'; // Keep Sequelize if needed elsewhere
-import JobApplication from 'models/JobApplication';
+import JobApplication from '../models/JobApplication';
 
 // --- REMOVED OLD MULTER CONFIGURATION ---
 // const uploadFolder = process.env.UPLOAD_FOLDER || 'uploads';
