@@ -7,7 +7,6 @@ import Employer from '../models/Employer';
 import Notification from '../models/Notification';
 import JobApplication from 'models/JobApplication';
 import { UniqueConstraintError } from 'sequelize'; // For checking duplicate application attempts
-import Artist from '../models/Artist';
 
 
 export const createJobPosting = async (
