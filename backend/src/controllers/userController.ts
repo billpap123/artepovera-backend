@@ -258,12 +258,12 @@ export const getCurrentUser = async (req: CustomRequest, res: Response) => {
 // src/controllers/userController.ts
 // ... (keep all other imports: Request, Response, User, Artist, Employer, etc.)
 
+// src/controllers/userController.ts
 export const getUserProfile = async (req: Request, res: Response): Promise<void> => {
     try {
         const { userId } = req.params;
-        const numericUserId = parseInt(userId, 10); // Parse to number
-
-        if (!userId || isNaN(numericUserId)) { // Validate
+        const numericUserId = parseInt(userId, 10);
+        if (!userId || isNaN(numericUserId)) {
             res.status(400).json({ error: "Valid User ID is required" });
             return;
         }
@@ -271,19 +271,15 @@ export const getUserProfile = async (req: Request, res: Response): Promise<void>
         console.log("📌 Fetching user profile for ID:", numericUserId);
 
         const user = await User.findOne({
-            where: { user_id: numericUserId }, // Use parsed ID
-            attributes: ['user_id', 'username', 'fullname', 'user_type', 'city'], // Added city here too if available on User model
+            where: { user_id: numericUserId },
+            // --- MODIFICATION: Remove 'city' if it doesn't exist on User model/table ---
+            attributes: ['user_id', 'username', 'fullname', 'user_type' /* , 'location' if you want to send the POINT data */],
+            // --- END MODIFICATION ---
             include: [
                 {
                     model: Artist,
                     as: 'artistProfile',
-                    // --- MODIFICATION: Add cv_url and cv_public_id to attributes ---
-                    attributes: [
-                        'artist_id', 'bio', 'profile_picture', 'is_student',
-                        'cv_url',       // <<< ADDED
-                        'cv_public_id'  // <<< ADDED (good practice)
-                    ],
-                    // --- END MODIFICATION ---
+                    attributes: ['artist_id', 'bio', 'profile_picture', 'is_student', 'cv_url', 'cv_public_id'],
                     required: false,
                 },
                 {
@@ -300,39 +296,38 @@ export const getUserProfile = async (req: Request, res: Response): Promise<void>
             return;
         }
 
-        // Construct the response
         const responseData = {
             user_id: user.user_id,
             fullname: user.fullname,
             username: user.username,
             user_type: user.user_type,
-            artistProfile: user.artistProfile
-                ? {
-                    artist_id: user.artistProfile.artist_id,
-                    bio: user.artistProfile.bio,
-                    profile_picture: user.artistProfile.profile_picture,
-                    is_student: user.artistProfile.is_student,
-                    // --- MODIFICATION: Add cv_url and cv_public_id to response ---
-                    cv_url: user.artistProfile.cv_url,
-                    cv_public_id: user.artistProfile.cv_public_id
-                    // --- END MODIFICATION ---
-                }
-                : null,
-            employerProfile: user.employerProfile
-                ? {
-                    employer_id: user.employerProfile.employer_id,
-                    bio: user.employerProfile.bio,
-                    profile_picture: user.employerProfile.profile_picture,
-                }
-                : null,
+            // city: user.city, // Remove if 'city' attribute was removed from User model selection
+            artistProfile: user.artistProfile ? { /* ... */ } : null,
+            employerProfile: user.employerProfile ? { /* ... */ } : null,
         };
-        console.log("[GET USER PROFILE] Sending responseData:", JSON.stringify(responseData, null, 2)); // Good for debugging
-        res.json(responseData);
+        // Add back city to responseData if you fetch it some other way or if it's on artist/employer profiles
+        if (user.artistProfile) {
+             responseData.artistProfile = {
+                 artist_id: user.artistProfile.artist_id,
+                 bio: user.artistProfile.bio,
+                 profile_picture: user.artistProfile.profile_picture,
+                 is_student: user.artistProfile.is_student,
+                 cv_url: user.artistProfile.cv_url,
+                 cv_public_id: user.artistProfile.cv_public_id
+                 // If city is on Artist profile: city: user.artistProfile.city
+             };
+        }
+        if (user.employerProfile) {
+             responseData.employerProfile = {
+                 employer_id: user.employerProfile.employer_id,
+                 bio: user.employerProfile.bio,
+                 profile_picture: user.employerProfile.profile_picture,
+                  // If city is on Employer profile: city: user.employerProfile.city
+             };
+        }
 
-    } catch (error) {
-        console.error("❌ Error fetching user profile:", error);
-        res.status(500).json({ error: "Internal server error" });
-    }
+        res.json(responseData);
+    } catch (error) { /* ... error handling ... */ }
 };
 
 // ... (Keep all other functions in userController.ts: createUser, loginUser, getCurrentUser, toggleLike, checkLike, etc.)
