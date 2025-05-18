@@ -255,24 +255,35 @@ export const getCurrentUser = async (req: CustomRequest, res: Response) => {
 // ─────────────────────────────────────────────────────────────
 // GET A SPECIFIC USER’S PROFILE BY USER ID
 // ─────────────────────────────────────────────────────────────
+// src/controllers/userController.ts
+// ... (keep all other imports: Request, Response, User, Artist, Employer, etc.)
+
 export const getUserProfile = async (req: Request, res: Response): Promise<void> => {
     try {
         const { userId } = req.params;
-        if (!userId || isNaN(parseInt(userId, 10))) { // Validate
+        const numericUserId = parseInt(userId, 10); // Parse to number
+
+        if (!userId || isNaN(numericUserId)) { // Validate
             res.status(400).json({ error: "Valid User ID is required" });
             return;
         }
 
-        console.log("📌 Fetching user profile for ID:", userId);
+        console.log("📌 Fetching user profile for ID:", numericUserId);
 
         const user = await User.findOne({
-            where: { user_id: userId },
-            attributes: ['user_id', 'username', 'fullname', 'user_type'],
+            where: { user_id: numericUserId }, // Use parsed ID
+            attributes: ['user_id', 'username', 'fullname', 'user_type', 'city'], // Added city here too if available on User model
             include: [
                 {
                     model: Artist,
                     as: 'artistProfile',
-                    attributes: ['artist_id', 'bio', 'profile_picture', 'is_student'],
+                    // --- MODIFICATION: Add cv_url and cv_public_id to attributes ---
+                    attributes: [
+                        'artist_id', 'bio', 'profile_picture', 'is_student',
+                        'cv_url',       // <<< ADDED
+                        'cv_public_id'  // <<< ADDED (good practice)
+                    ],
+                    // --- END MODIFICATION ---
                     required: false,
                 },
                 {
@@ -289,11 +300,8 @@ export const getUserProfile = async (req: Request, res: Response): Promise<void>
             return;
         }
 
-        // --- FIX: REMOVED formatPicture function ---
-        // const baseURL = process.env.BASE_URL || 'http://localhost:50001';
-        // const formatPicture = (pic: string | null) => ... ;
-
-        res.json({
+        // Construct the response
+        const responseData = {
             user_id: user.user_id,
             fullname: user.fullname,
             username: user.username,
@@ -302,23 +310,32 @@ export const getUserProfile = async (req: Request, res: Response): Promise<void>
                 ? {
                     artist_id: user.artistProfile.artist_id,
                     bio: user.artistProfile.bio,
-                    profile_picture: user.artistProfile.profile_picture, // <<< USE DIRECT VALUE
-                    is_student: user.artistProfile.is_student
+                    profile_picture: user.artistProfile.profile_picture,
+                    is_student: user.artistProfile.is_student,
+                    // --- MODIFICATION: Add cv_url and cv_public_id to response ---
+                    cv_url: user.artistProfile.cv_url,
+                    cv_public_id: user.artistProfile.cv_public_id
+                    // --- END MODIFICATION ---
                 }
                 : null,
             employerProfile: user.employerProfile
                 ? {
                     employer_id: user.employerProfile.employer_id,
                     bio: user.employerProfile.bio,
-                    profile_picture: user.employerProfile.profile_picture, // <<< USE DIRECT VALUE
+                    profile_picture: user.employerProfile.profile_picture,
                 }
                 : null,
-        });
+        };
+        console.log("[GET USER PROFILE] Sending responseData:", JSON.stringify(responseData, null, 2)); // Good for debugging
+        res.json(responseData);
+
     } catch (error) {
         console.error("❌ Error fetching user profile:", error);
         res.status(500).json({ error: "Internal server error" });
     }
 };
+
+// ... (Keep all other functions in userController.ts: createUser, loginUser, getCurrentUser, toggleLike, checkLike, etc.)
 
 
 // --- Other functions like getUserNames, loginUser, createUser, etc. ---
