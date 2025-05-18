@@ -1,40 +1,38 @@
 // src/models/Chat.ts
 import { Model, DataTypes, Optional, Sequelize } from 'sequelize';
 import sequelize from '../config/db';
-// Import User model if defining associations here
-// import User from './User';
+// Import Artist and Employer if defining associations here, but it's better in associations.ts
+import Artist from './Artist';
+ import Employer from './Employer';
 
-// Define attributes matching the *model* perspective
 interface ChatAttributes {
   chat_id: number;
-  artist_user_id: number; // Keep consistent JS name (camelCase or snake_case)
-  employer_user_id: number; // Keep consistent JS name
+  artist_user_id: number; // This will store Artist.artist_id
+  employer_user_id: number; // This will store Employer.employer_id
   message_count: number;
   artist_rating_status: 'pending' | 'prompted_10' | 'prompted_20' | 'declined' | 'completed';
   employer_rating_status: 'pending' | 'prompted_10' | 'prompted_20' | 'declined' | 'completed';
-  // Timestamps managed by Sequelize
-  created_at?: Date; // Use snake_case if underscored: true
-  updated_at?: Date; // Use snake_case if underscored: true
+  created_at?: Date;
+  updated_at?: Date;
 }
 
-// Define creation attributes (make optional fields with defaults/autoIncrement)
 interface ChatCreationAttributes extends Optional<ChatAttributes, 'chat_id' | 'message_count' | 'artist_rating_status' | 'employer_rating_status' | 'created_at' | 'updated_at'> {}
 
 class Chat extends Model<ChatAttributes, ChatCreationAttributes> implements ChatAttributes {
   public chat_id!: number;
-  public artist_user_id!: number;
-  public employer_user_id!: number;
+  public artist_user_id!: number; // Corresponds to Artist.artist_id
+  public employer_user_id!: number; // Corresponds to Employer.employer_id
   public message_count!: number;
   public artist_rating_status!: 'pending' | 'prompted_10' | 'prompted_20' | 'declined' | 'completed';
   public employer_rating_status!: 'pending' | 'prompted_10' | 'prompted_20' | 'declined' | 'completed';
 
-  // Timestamps managed by Sequelize
-  public readonly created_at!: Date; // Use snake_case if underscored: true
-  public readonly updatedAt!: Date; // Use snake_case if underscored: true
+  public readonly created_at!: Date;
+  public readonly updatedAt!: Date;
 
-  // Define associations here or in associations file
-  // public readonly artistUser?: User;
-  // public readonly employerUser?: User;
+  // For type safety with includes based on associations.ts
+  public readonly chatArtistProfile?: Artist;
+  public readonly chatEmployerProfile?: Employer;
+  // public readonly messages?: Message[]; // Example if you define Message association here
 }
 
 Chat.init(
@@ -43,52 +41,50 @@ Chat.init(
       type: DataTypes.INTEGER.UNSIGNED,
       autoIncrement: true,
       primaryKey: true,
-      field: 'chat_id' // Explicitly map to column name (good practice)
+      field: 'chat_id'
     },
-    // Model attribute name (JS): artist_user_id
-    // Maps to DB column name: artist_id
-    artist_user_id: {
-      type: DataTypes.INTEGER, // Match DB 'int'
-      allowNull: true, // Match DB 'Null YES'
-      field: 'artist_id', // <<< MAP to actual DB column name
-      references: { model: 'users', key: 'user_id' } // FK reference
+    artist_user_id: { // Model attribute name
+      type: DataTypes.INTEGER.UNSIGNED, // Match Artist.artist_id type
+      allowNull: false, // A chat must have an artist participant
+      field: 'artist_id', // Actual DB column name
+      references: {
+        model: 'artists', // <<< CORRECT: Name of the artists TABLE
+        key: 'artist_id',   // <<< CORRECT: Primary key in artists TABLE
+      }
     },
-    // Model attribute name (JS): employer_user_id
-    // Maps to DB column name: employer_id
-    employer_user_id: {
-      type: DataTypes.INTEGER.UNSIGNED, // Match DB
-      allowNull: false, // Match DB 'Null NO'
-      field: 'employer_id', // <<< MAP to actual DB column name
-      references: { model: 'users', key: 'user_id' } // FK reference
+    employer_user_id: { // Model attribute name
+      type: DataTypes.INTEGER.UNSIGNED, // Match Employer.employer_id type
+      allowNull: false, // A chat must have an employer participant
+      field: 'employer_id', // Actual DB column name
+      references: {
+        model: 'employers', // <<< CORRECT: Name of the employers TABLE
+        key: 'employer_id',   // <<< CORRECT: Primary key in employers TABLE
+      }
     },
     message_count: {
-      type: DataTypes.INTEGER, // Match DB 'int'
+      type: DataTypes.INTEGER.UNSIGNED, // Changed to UNSIGNED
       allowNull: false,
       defaultValue: 0,
-      field: 'message_count' // Explicit mapping
+      field: 'message_count'
     },
     artist_rating_status: {
       type: DataTypes.ENUM('pending', 'prompted_10', 'prompted_20', 'declined', 'completed'),
       allowNull: false,
       defaultValue: 'pending',
-      field: 'artist_rating_status' // Explicit mapping
+      field: 'artist_rating_status'
     },
     employer_rating_status: {
       type: DataTypes.ENUM('pending', 'prompted_10', 'prompted_20', 'declined', 'completed'),
       allowNull: false,
       defaultValue: 'pending',
-      field: 'employer_rating_status' // Explicit mapping
+      field: 'employer_rating_status'
     },
-     // REMOVED manual created_at - Let Sequelize handle timestamps
   },
   {
     sequelize,
     tableName: 'chats',
-    timestamps: true, // <<< ENABLE Sequelize timestamps
-    underscored: true, // <<< ADD This to match DB 'created_at' and handle 'updated_at'
-    // This tells Sequelize to expect created_at and updated_at columns
-    // and to map camelCase attributes (like artistUserId) to snake_case columns (like artist_user_id)
-    // UNLESS overridden by the 'field' option.
+    timestamps: true,
+    underscored: true,
   }
 );
 
