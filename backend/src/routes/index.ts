@@ -102,6 +102,12 @@ router.get(
   authenticate,
   artistController.getMyArtistApplications // Points to the new function in artistController
 );
+// Route for an artist to apply to a specific job posting
+router.post(
+  '/job-postings/:jobId/apply', // <<< This path structure uses :jobId as a parameter
+  authenticate,
+  jobPostingController.applyToJob
+);
 
 // --- Chat routes ---
 router.post('/chats', authenticate, chatController.createChat);
