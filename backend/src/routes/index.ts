@@ -97,7 +97,11 @@ router.put('/job-postings/:job_id', authenticate, jobPostingController.updateJob
 router.delete('/job-postings/:job_id', authenticate, jobPostingController.deleteJobPosting);
 router.get('/job-postings', authenticate, jobPostingController.getAllJobPostings);
 router.post('/jobs/:jobId/apply', authenticate, jobPostingController.applyToJob);
-
+router.get(
+  '/artists/my-applications', // Endpoint for the logged-in artist to get their applications
+  authenticate,
+  artistController.getMyArtistApplications // Points to the new function in artistController
+);
 
 // --- Chat routes ---
 router.post('/chats', authenticate, chatController.createChat);

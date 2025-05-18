@@ -8,6 +8,7 @@ import Artist from '../models/Artist';
 import { CustomRequest } from '../middleware/authMiddleware'; // Keep your custom request type
 import User from '../models/User'; // Keep User import if needed elsewhere
 import { Sequelize } from 'sequelize'; // Keep Sequelize if needed elsewhere
+import JobApplication from 'models/JobApplication';
 
 // --- REMOVED OLD MULTER CONFIGURATION ---
 // const uploadFolder = process.env.UPLOAD_FOLDER || 'uploads';
@@ -429,3 +430,36 @@ export const deleteArtistCv = async (req: CustomRequest, res: Response): Promise
   }
 };
 // --- END NEW CV DELETE FUNCTION ---
+
+export const getMyArtistApplications = async (req: CustomRequest, res: Response): Promise<void> => {
+  try {
+      const artistUserId = req.user?.id; // Get User ID from authenticated token
+
+      if (!artistUserId) {
+          // This should ideally be caught by 'authenticate' middleware, but good to double check
+          res.status(401).json({ message: 'Unauthorized: User not logged in.' });
+          return;
+      }
+
+      // Optional: A stricter check to ensure the user is actually an artist type.
+      // If your `authenticate` middleware or route already handles this, it might be redundant.
+      if (req.user?.user_type !== 'Artist') {
+          res.status(403).json({ message: 'Forbidden: Only artists can view their applications.' });
+          return;
+      }
+
+      // The JobApplication model's 'artist_user_id' field stores the User.user_id of the applicant
+      const applications = await JobApplication.findAll({
+          where: { artist_user_id: artistUserId },
+          attributes: ['job_id'] // We only need the job_ids they applied to
+      });
+
+      const appliedJobIds = applications.map(app => app.job_id);
+
+      res.status(200).json({ appliedJobIds });
+
+  } catch (error: any) {
+      console.error("Error fetching artist's job applications:", error);
+      res.status(500).json({ message: 'Failed to fetch your job applications.', error: error.message });
+  }
+};

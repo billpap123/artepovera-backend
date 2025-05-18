@@ -116,7 +116,8 @@ JobPosting.init(
   {
     sequelize,
     tableName: 'job_postings',
-    timestamps: false,
+    timestamps: true,
+    underscored: true,
   }
 );
 

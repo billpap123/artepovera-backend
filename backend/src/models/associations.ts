@@ -6,6 +6,7 @@ import Chat from './Chat';
 import Message from './Message';
 import JobPosting from './JobPosting';
 import Review from './Review';
+import JobApplication from './JobApplication';
 import Portfolio from './Portfolio'; // Add this if not already there
 
 // 1) User <-> Artist Profile
@@ -92,3 +93,14 @@ Artist.hasMany(Portfolio, {
   as: 'portfolioItems'     // Alias for accessing portfolio items from an Artist instance
 });
 // --- END PORTFOLIO ASSOCIATIONS ---
+
+
+// --- ADD NEW ASSOCIATIONS FOR JOB APPLICATIONS ---
+// JobPosting <-> JobApplication
+JobPosting.hasMany(JobApplication, { foreignKey: 'job_id', as: 'applications' });
+JobApplication.belongsTo(JobPosting, { foreignKey: 'job_id', as: 'jobPostingDetails' }); // Use a distinct alias
+
+// User (Artist) <-> JobApplication
+User.hasMany(JobApplication, { foreignKey: 'artist_user_id', as: 'jobApplicationsMade' }); // An artist has many applications they made
+JobApplication.belongsTo(User, { foreignKey: 'artist_user_id', as: 'applyingArtistDetails' }); // An application belongs to an artist user
+// --- END JOB APPLICATION ASSOCIATIONS ---
