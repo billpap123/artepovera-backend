@@ -7,7 +7,7 @@ import Message from './Message';
 import JobPosting from './JobPosting';
 import Review from './Review';
 import Portfolio from './Portfolio';
-import JobApplication from './JobApplication'; // Make sure this model exists if you use it
+import JobApplication from './JobApplication';
 
 // 1) User <-> Artist Profile
 User.hasOne(Artist, { foreignKey: 'user_id', as: 'artistProfile' });
