@@ -369,17 +369,20 @@ export const applyToJob = async (
     console.log(`✅ Job application created with ID: ${newApplication.application_id}`);
     // --- End Create ---
 
-    const artistProfileLink = `${process.env.FRONTEND_URL || 'https://artepovera2.vercel.app'}/user-profile/${loggedInUserId}`;
-    const notificationMessage = `${artistName} has applied for your job posting titled "${jobPosting.title}". <a href="${artistProfileLink}" target="_blank" rel="noopener noreferrer">View profile</a>`;
+// --- CORRECTED NOTIFICATION LINK ---
+const frontendBaseUrl = process.env.FRONTEND_URL || 'https://artepovera2.vercel.app'; // Fallback to your live URL
+const artistProfileLink = `${frontendBaseUrl}/user-profile/${loggedInUserId}`; // Use User ID of the artist
 
-    await Notification.create({
-      user_id: employerUserIdForNotification,
-      sender_id: loggedInUserId,
-      message: notificationMessage,
-      // read_status defaults to false, created_at defaults to NOW
-    });
-    console.log("✅ Notification created for employer user ID:", employerUserIdForNotification);
+const notificationMessage = `${artistName} has applied for your job posting titled "${jobPosting.title}". <a href="${artistProfileLink}" target="_blank" rel="noopener noreferrer">View profile</a>`;
+// --- END CORRECTION ---
 
+await Notification.create({
+  user_id: employerUserIdForNotification,
+  sender_id: loggedInUserId,
+  message: notificationMessage,
+  // read_status defaults to false, created_at defaults to NOW
+});
+console.log("✅ Notification created for employer user ID:", employerUserIdForNotification);
     res.status(201).json({
       message: 'Application successful! The employer has been notified.',
       application: { // Send back some details of the created application
