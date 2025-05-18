@@ -177,80 +177,80 @@ export const checkLike = async (req: CustomRequest, res: Response): Promise<void
 // GET THE CURRENTLY LOGGED‐IN USER’S DATA
 // ─────────────────────────────────────────────────────────────
 export const getCurrentUser = async (req: CustomRequest, res: Response) => {
-  try {
-    // console.log('🔹 Decoded user from token:', req.user); // Keep for debugging if needed
-    const userId = req.user?.id;
-    if (!userId) {
-      res.status(401).json({ message: 'Unauthorized: User ID not found in token' });
-      return;
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        res.status(401).json({ message: 'Unauthorized: User ID not found in token' });
+        return;
+      }
+  
+      const user = await User.findByPk(userId, {
+        attributes: ['user_id', 'username', 'email', 'fullname', 'phone_number', 'user_type', 'location'],
+        include: [
+          {
+            model: Artist,
+            as: 'artistProfile',
+            attributes: ['artist_id', 'bio', 'profile_picture', 'is_student', 'cv_url', 'cv_public_id'], // cv_url & cv_public_id are selected
+            required: false
+          },
+          {
+            model: Employer,
+            as: 'employerProfile',
+            attributes: ['employer_id', 'bio', 'profile_picture'], // Add cv_url/id here too if employers can have them
+            required: false
+          },
+        ],
+      });
+  
+      if (!user) {
+        res.status(404).json({ message: 'User not found' });
+        return;
+      }
+  
+      const responseData: any = {
+          user_id: user.user_id,
+          username: user.username,
+          fullname: user.fullname,
+          user_type: user.user_type,
+          email: user.email,
+          phone_number: user.phone_number,
+          // location: user.location, // Uncomment if you want to send location
+      };
+  
+      if (user.artistProfile) {
+          responseData.artist = {
+              artist_id: user.artistProfile.artist_id,
+              bio: user.artistProfile.bio,
+              profile_picture: user.artistProfile.profile_picture,
+              is_student: user.artistProfile.is_student,
+              // --- ADD THESE LINES ---
+              cv_url: user.artistProfile.cv_url,
+              cv_public_id: user.artistProfile.cv_public_id
+              // --- END ADD ---
+          };
+      } else {
+          responseData.artist = null;
+      }
+  
+       if (user.employerProfile) {
+          responseData.employer = {
+              employer_id: user.employerProfile.employer_id,
+              bio: user.employerProfile.bio,
+              profile_picture: user.employerProfile.profile_picture,
+              // If employers can have CVs, add cv_url and cv_public_id here too
+          };
+      } else {
+           responseData.employer = null;
+      }
+  
+      console.log("[GET CURRENT USER] Sending responseData:", JSON.stringify(responseData, null, 2)); // Good for debugging
+      res.status(200).json(responseData);
+  
+    } catch (error) {
+      console.error('❌ Error in getCurrentUser:', error);
+      res.status(500).json({ message: 'Internal server error', error: (error as Error).message });
     }
-
-    const user = await User.findByPk(userId, {
-      attributes: ['user_id', 'username', 'email', 'fullname', 'phone_number', 'user_type', 'location'],
-      include: [
-        {
-          model: Artist,
-          as: 'artistProfile',
-          attributes: ['artist_id', 'bio', 'profile_picture', 'is_student', 'cv_url', 'cv_public_id'], // <<< ADD cv_url, cv_public_id
-          required: false
-        },
-        {
-          model: Employer,
-          as: 'employerProfile',
-          attributes: ['employer_id', 'bio', 'profile_picture'],
-          required: false
-        },
-      ],
-    });
-
-    if (!user) {
-      res.status(404).json({ message: 'User not found' });
-      return;
-    }
-
-    // --- FIX: REMOVED formatProfilePicture function ---
-    // const baseURL = process.env.BASE_URL || 'http://localhost:50001';
-    // const formatProfilePicture = (pic: string | null) => ... ;
-
-    // Construct response using direct database values
-    const responseData: any = {
-        user_id: user.user_id,
-        username: user.username,
-        fullname: user.fullname,
-        user_type: user.user_type,
-        email: user.email,
-        phone_number: user.phone_number,
-        // location: user.location // Send raw location data if needed
-    };
-
-    if (user.artistProfile) {
-        responseData.artist = {
-            artist_id: user.artistProfile.artist_id,
-            bio: user.artistProfile.bio,
-            profile_picture: user.artistProfile.profile_picture, // <<< USE DIRECT VALUE
-            is_student: user.artistProfile.is_student
-        };
-    } else {
-        responseData.artist = null;
-    }
-
-     if (user.employerProfile) {
-        responseData.employer = {
-            employer_id: user.employerProfile.employer_id,
-            bio: user.employerProfile.bio,
-            profile_picture: user.employerProfile.profile_picture, // <<< USE DIRECT VALUE
-        };
-    } else {
-         responseData.employer = null;
-    }
-
-    res.status(200).json(responseData);
-
-  } catch (error) {
-    console.error('❌ Error in getCurrentUser:', error);
-    res.status(500).json({ message: 'Internal server error', error: (error as Error).message });
-  }
-};
+  };
 
 // ─────────────────────────────────────────────────────────────
 // GET A SPECIFIC USER’S PROFILE BY USER ID
