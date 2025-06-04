@@ -87,7 +87,6 @@ export const createArtistComment = async (req: CustomRequest, res: Response): Pr
         res.status(500).json({ message: "Failed to post viewpoint.", error: error.message });
     }
 };
-
 export const getCommentsForUserProfile = async (req: Request, res: Response): Promise<void> => {
     try {
         const profileUserId = parseInt(req.params.userId, 10);
@@ -96,7 +95,7 @@ export const getCommentsForUserProfile = async (req: Request, res: Response): Pr
         const profileUser = await User.findByPk(profileUserId);
         if (!profileUser) { res.status(404).json({ message: 'Profile user not found.' }); return; }
 
-        const commentsInstances = await ArtistComment.findAll({ // These are Sequelize instances
+        const commentsInstances = await ArtistComment.findAll({
             where: { profile_user_id: profileUserId },
             include: [{
                 model: User,
@@ -107,16 +106,15 @@ export const getCommentsForUserProfile = async (req: Request, res: Response): Pr
                     { model: Employer, as: 'employerProfile', attributes: ['profile_picture'], required: false }
                 ]
             }],
-            order: [['created_at', 'DESC']],
+            order: [['created_at', 'DESC']], // DB column is 'created_at'
         });
 
         const formattedComments = commentsInstances.map(commentInstance => {
-            const commenterUserSequelizeInstance = commentInstance.commenterArtist; // Access association on the instance
-            let formattedCommenterData: any = null; // Or a specific interface
+            const commenterUserSequelizeInstance = commentInstance.commenterArtist;
+            let formattedCommenterData: any = null;
 
             if (commenterUserSequelizeInstance) {
                 let profilePic = null;
-                // Access nested profiles directly on the Sequelize User instance
                 if (commenterUserSequelizeInstance.user_type === 'Artist' && commenterUserSequelizeInstance.artistProfile) {
                     profilePic = commenterUserSequelizeInstance.artistProfile.profile_picture;
                 } else if (commenterUserSequelizeInstance.user_type === 'Employer' && commenterUserSequelizeInstance.employerProfile) {
@@ -130,14 +128,26 @@ export const getCommentsForUserProfile = async (req: Request, res: Response): Pr
                 };
             }
             
-            const plainCommentBase = commentInstance.get({ plain: true }); // Get plain object of the comment itself
+            // Get the plain object for most attributes
+            const plainCommentBase = commentInstance.get({ plain: true });
+
+            // --- MODIFIED TIMESTAMP HANDLING ---
+            // Access standard Sequelize instance properties (camelCase)
+            // and format them for the response with snake_case keys.
+            const createdAtTimestamp = commentInstance.created_at;
+            const updatedAtTimestamp = commentInstance.updated_at;
+            // --- END MODIFICATION ---
+
             return {
                 comment_id: plainCommentBase.comment_id,
                 profile_user_id: plainCommentBase.profile_user_id,
                 commenter_user_id: plainCommentBase.commenter_user_id,
                 comment_text: plainCommentBase.comment_text,
-                created_at: plainCommentBase.created_at,
-                updated_at: plainCommentBase.updated_at,
+                
+                // Use the instance's timestamps and format them
+                created_at: createdAtTimestamp ? createdAtTimestamp.toISOString() : null,
+                updated_at: updatedAtTimestamp ? updatedAtTimestamp.toISOString() : null,
+                
                 commenter: formattedCommenterData,
             };
         });
