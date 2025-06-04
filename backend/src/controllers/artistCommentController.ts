@@ -7,16 +7,17 @@ import Artist from '../models/Artist'; // Artist model
 import Employer from '../models/Employer'; // Employer model
 
 export const createArtistComment = async (req: CustomRequest, res: Response): Promise<void> => {
-    // ... (initial validations and checks remain the same)
     const loggedInUserId = req.user?.id;
     const loggedInUserType = req.user?.user_type;
     const profileUserId = parseInt(req.params.userId, 10);
     const { comment_text } = req.body;
 
-    if (!loggedInUserId || loggedInUserType !== 'Artist' /* ... other checks */) {
-        // ... handle errors
-        return;
-    }
+    // --- Validations --- (keep your existing validations)
+    if (!loggedInUserId) { res.status(401).json({ message: "Unauthorized. Please log in to comment." }); return; }
+    if (loggedInUserType !== 'Artist') { res.status(403).json({ message: "Forbidden. Only artists can post artistic viewpoints." }); return; }
+    if (isNaN(profileUserId)) { res.status(400).json({ message: "Invalid profile user ID." }); return; }
+    if (!comment_text || typeof comment_text !== 'string' || comment_text.trim() === "") { res.status(400).json({ message: "Comment text cannot be empty." }); return; }
+    if (loggedInUserId === profileUserId) { res.status(400).json({ message: "Artists cannot comment on their own profile." }); return; }
 
     try {
         const profileUser = await User.findByPk(profileUserId);
@@ -25,18 +26,20 @@ export const createArtistComment = async (req: CustomRequest, res: Response): Pr
             return;
         }
 
-        const newComment = await ArtistComment.create({
+        const newCommentInstance = await ArtistComment.create({ // newCommentInstance is a Sequelize instance
             profile_user_id: profileUserId,
             commenter_user_id: loggedInUserId,
             comment_text: comment_text.trim(),
         });
 
-        const createdCommentWithDetails = await ArtistComment.findByPk(newComment.comment_id, {
+        // Fetch the created comment with commenter details to return to the frontend
+        // createdCommentWithDetails is also a Sequelize instance
+        const createdCommentWithDetails = await ArtistComment.findByPk(newCommentInstance.comment_id, {
             include: [{
                 model: User,
-                as: 'commenterArtist', // This is the User instance for the commenter
-                attributes: ['user_id', 'fullname', 'user_type'], // Core User attributes
-                include: [ // Nested include for profile picture
+                as: 'commenterArtist',
+                attributes: ['user_id', 'fullname', 'user_type'],
+                include: [
                     { model: Artist, as: 'artistProfile', attributes: ['profile_picture'], required: false },
                     { model: Employer, as: 'employerProfile', attributes: ['profile_picture'], required: false }
                 ]
@@ -48,18 +51,16 @@ export const createArtistComment = async (req: CustomRequest, res: Response): Pr
             return;
         }
         
-        const commenterUserSequelizeInstance = createdCommentWithDetails.commenterArtist; // This IS a User Sequelize instance
-        let formattedCommenterData: any = null; // Or a specific interface for the response shape
+        const commenterUserSequelizeInstance = createdCommentWithDetails.commenterArtist;
+        let formattedCommenterData: any = null;
 
         if (commenterUserSequelizeInstance) {
             let profilePic = null;
-            // Access nested profiles directly on the Sequelize User instance
             if (commenterUserSequelizeInstance.user_type === 'Artist' && commenterUserSequelizeInstance.artistProfile) {
                 profilePic = commenterUserSequelizeInstance.artistProfile.profile_picture;
             } else if (commenterUserSequelizeInstance.user_type === 'Employer' && commenterUserSequelizeInstance.employerProfile) {
                 profilePic = commenterUserSequelizeInstance.employerProfile.profile_picture;
             }
-
             formattedCommenterData = {
                 user_id: commenterUserSequelizeInstance.user_id,
                 fullname: commenterUserSequelizeInstance.fullname,
@@ -68,15 +69,22 @@ export const createArtistComment = async (req: CustomRequest, res: Response): Pr
             };
         }
 
+        // Get direct attributes from the plain object for the comment's own fields
         const plainCreatedCommentBase = createdCommentWithDetails.get({ plain: true });
 
         const responseComment = {
             comment_id: plainCreatedCommentBase.comment_id,
             profile_user_id: plainCreatedCommentBase.profile_user_id,
-            commenter_user_id: plainCreatedCommentBase.commenter_user_id,
+            commenter_user_id: plainCreatedCommentBase.commenter_user_id, // This is just the ID
             comment_text: plainCreatedCommentBase.comment_text,
-            created_at: plainCreatedCommentBase.created_at,
-            updated_at: plainCreatedCommentBase.updated_at,
+            
+            // --- MODIFIED TIMESTAMP HANDLING ---
+            // Access timestamps from the Sequelize instance (createdCommentWithDetails)
+            // and format them for the response with snake_case keys.
+            created_at: createdCommentWithDetails.created_at ? createdCommentWithDetails.created_at.toISOString() : null,
+            updated_at: createdCommentWithDetails.updated_at ? createdCommentWithDetails.updated_at.toISOString() : null,
+            // --- END MODIFICATION ---
+            
             commenter: formattedCommenterData
         };
 
