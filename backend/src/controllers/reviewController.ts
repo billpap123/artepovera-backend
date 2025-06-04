@@ -8,6 +8,7 @@ import { CustomRequest } from '../middleware/authMiddleware';
 import { UniqueConstraintError, ValidationError } from 'sequelize'; // For specific error handling
 import  Artist  from '../models/Artist';
 import  Employer  from '../models/Employer';
+
 // Artist and Employer imports are no longer needed here as they were for chat participant validation
 
 // Make sure your sequelize instance is correctly imported for use in getAverageRatingForUser
@@ -192,6 +193,7 @@ export const checkExistingReview = async (req: CustomRequest, res: Response): Pr
 /* -------------------------------------------------------------------------- */
 // No major changes to its core logic. 
 // The `chat_id` field in returned reviews will now be `null` for reviews submitted without chat context.
+
 export const getReviewsForUser = async (req: Request, res: Response): Promise<void> => {
     try {
          const userId = parseInt(req.params.userId, 10);
@@ -213,37 +215,37 @@ export const getReviewsForUser = async (req: Request, res: Response): Promise<vo
                     ]
                 }
             ],
-            order: [['created_at', 'DESC']] // This relies on 'created_at' in DB, which is fine with underscored:true
+            order: [[sequelizeInstance.col('created_at'), 'DESC']]
          });
   
          const formattedReviews = reviewsInstances.map(reviewInstance => {
-             // 1. Access the 'reviewer' association (User instance) directly from the reviewInstance
-             const reviewerInstance = reviewInstance.reviewer;
-             let formattedReviewerData: any = null; // Or a more specific interface
+             // --- DEFINE formattedReviewerData INSIDE THE MAP CALLBACK ---
+             const reviewerInstance = reviewInstance.reviewer; // This is a User Sequelize instance (or undefined)
+             let formattedReviewerData: { // Define a more specific type if you have one
+                  user_id: number;
+                  fullname: string;
+                  user_type: string;
+                  profile_picture: string | null;
+             } | null = null;
   
              if (reviewerInstance) {
                  let reviewerProfilePic: string | null = null;
-                 // Access nested profiles (artistProfile/employerProfile) on the reviewerInstance (User instance)
-                 // These 'artistProfile' and 'employerProfile' must be declared in your User model class
+                 // Access nested profiles on the reviewerInstance
                  if (reviewerInstance.user_type === 'Artist' && reviewerInstance.artistProfile) {
                      reviewerProfilePic = reviewerInstance.artistProfile.profile_picture;
                  } else if (reviewerInstance.user_type === 'Employer' && reviewerInstance.employerProfile) {
                      reviewerProfilePic = reviewerInstance.employerProfile.profile_picture;
                  }
   
-                 formattedReviewerData = {
+                 formattedReviewerData = { // Assign value to the locally scoped variable
                      user_id: reviewerInstance.user_id,
                      fullname: reviewerInstance.fullname,
                      user_type: reviewerInstance.user_type,
                      profile_picture: reviewerProfilePic || null
                  };
              }
-  
-             // 2. Access timestamp from the reviewInstance (as declared in your Review class)
-             // Your Review class has `public readonly created_at!: Date;`
-             const createdAtFromInstance = reviewInstance.created_at; 
-  
-             // 3. Get the plain object for the review's own direct attributes
+             // --- formattedReviewerData IS NOW DEFINED ---
+             
              const plainReviewBase = reviewInstance.get({ plain: true });
   
              return {
@@ -251,9 +253,9 @@ export const getReviewsForUser = async (req: Request, res: Response): Promise<vo
                  chat_id: plainReviewBase.chat_id, 
                  overall_rating: plainReviewBase.overall_rating,
                  specific_answers: plainReviewBase.specific_answers,
-                 // Use the timestamp accessed from the instance, then format it for JSON
-                 created_at: createdAtFromInstance ? createdAtFromInstance.toISOString() : null, 
-                 reviewer: formattedReviewerData
+                 created_at: reviewInstance.createdAt ? reviewInstance.createdAt.toISOString() : null, 
+                 updated_at: reviewInstance.updatedAt ? reviewInstance.updatedAt.toISOString() : null,
+                 reviewer: formattedReviewerData // <<< NOW USING THE CORRECTLY SCOPED VARIABLE
              };
          });
   

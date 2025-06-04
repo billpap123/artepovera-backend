@@ -24,7 +24,7 @@ class Review extends Model<ReviewAttributes, ReviewCreationAttributes>
   public overall_rating!: number;
   public specific_answers?: object | null; // Made optional to match interface
 
-  public readonly created_at!: Date;
+  public readonly createdAt!: Date;
   public readonly updatedAt!: Date; // Standard Sequelize camelCase for model property
 
   public readonly chat?: Chat;
