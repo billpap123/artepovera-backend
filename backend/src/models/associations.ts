@@ -9,6 +9,8 @@ import Review from './Review';
 import Portfolio from './Portfolio';
 import JobApplication from './JobApplication';
 import ArtistSupport from './ArtistSupport';
+import ArtistComment from './ArtistComment'; // <<< ADD THIS IMPORT
+
 // 1) User <-> Artist Profile
 User.hasOne(Artist, { foreignKey: 'user_id', as: 'artistProfile' });
 Artist.belongsTo(User, { foreignKey: 'user_id', as: 'user' }); // <<< CORRECTED ALIAS to 'user'
@@ -115,3 +117,26 @@ ArtistSupport.belongsTo(User, {
 // Make sure this file is imported ONCE in your application (e.g., in server.ts)
 // AFTER all models are defined and initialized by Sequelize.
 // Example: import './models/associations';
+
+
+// --- ADD NEW ASSOCIATIONS FOR ARTIST PROFILE COMMENTS ---
+
+// An ArtistComment belongs to the User whose profile is being commented on.
+ArtistComment.belongsTo(User, {
+  foreignKey: 'profile_user_id',
+  as: 'commentedProfileUser' // Alias to get the User object of the profile owner
+});
+User.hasMany(ArtistComment, { // A User's profile can receive many comments
+  foreignKey: 'profile_user_id',
+  as: 'receivedProfileComments'
+});
+
+// An ArtistComment belongs to the User (Artist) who wrote the comment.
+ArtistComment.belongsTo(User, {
+  foreignKey: 'commenter_user_id',
+  as: 'commenterArtist' // Alias to get the User object of the commenter
+});
+User.hasMany(ArtistComment, { // A User (Artist) can write many comments
+  foreignKey: 'commenter_user_id',
+  as: 'writtenProfileComments'
+});

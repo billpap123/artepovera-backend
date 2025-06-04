@@ -14,6 +14,7 @@ import * as portfolioController from '../controllers/portfolioController';
 // REMOVED: import { upload } from '../controllers/portfolioController'; // Correctly removed
 import * as reviewController from '../controllers/reviewController';
 import * as artistSupportController from '../controllers/artistSupportController';
+import * as artistCommentController from '../controllers/artistCommentController'; // <<< ADD THIS
 
 import { getLocations } from '../controllers/locationController';
 import {
@@ -147,6 +148,19 @@ router.get('/users/:userId/reviews', reviewController.getReviewsForUser); // Pub
 
 // --- Location routes ---
 router.get('/locations', getLocations); // Public maybe? Or add authenticate
+
+// --- ARTIST PROFILE COMMENTS / VIEWPOINTS ROUTES ---
+router.get(
+  '/users/:userId/comments', // userId is the ID of the profile whose comments are being fetched
+  artistCommentController.getCommentsForUserProfile
+);
+
+router.post(
+  '/users/:userId/comments', // userId is the ID of the profile being commented on
+  authenticate, // Ensures the commenter is logged in
+  artistCommentController.createArtistComment
+);
+// --- END ARTIST PROFILE COMMENTS ROUTES ---
 
 
 export default router;
