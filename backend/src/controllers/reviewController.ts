@@ -6,6 +6,8 @@ import Review from '../models/Review';
 import User from '../models/User'; // Still needed to optionally check if reviewedUser exists
 import { CustomRequest } from '../middleware/authMiddleware';
 import { UniqueConstraintError, ValidationError } from 'sequelize'; // For specific error handling
+import  Artist  from '../models/Artist';
+import  Employer  from '../models/Employer';
 // Artist and Employer imports are no longer needed here as they were for chat participant validation
 
 // Make sure your sequelize instance is correctly imported for use in getAverageRatingForUser
@@ -153,13 +155,23 @@ export const getAverageRatingForUser = async (req: Request, res: Response): Prom
   };
   
 // In reviewController.ts
-export const checkExistingReview = async (req: CustomRequest, res: Response) => {
+export const checkExistingReview = async (req: CustomRequest, res: Response): Promise<void> => { // Explicit return type
     try {
-        const reviewerId = parseInt(req.query.reviewerId as string, 10);
-        const reviewedUserId = parseInt(req.query.reviewedUserId as string, 10);
+        const reviewerIdString = req.query.reviewerId as string;
+        const reviewedUserIdString = req.query.reviewedUserId as string;
+
+        // More robust parsing and validation
+        if (!reviewerIdString || !reviewedUserIdString) {
+            res.status(400).json({ message: "Missing reviewerId or reviewedUserId query parameters." });
+            return; // Exit after sending response
+        }
+
+        const reviewerId = parseInt(reviewerIdString, 10);
+        const reviewedUserId = parseInt(reviewedUserIdString, 10);
 
         if (isNaN(reviewerId) || isNaN(reviewedUserId)) {
-            return res.status(400).json({ message: "Invalid user IDs." });
+            res.status(400).json({ message: "Invalid user IDs. They must be numbers." });
+            return; // Exit after sending response
         }
 
         const review = await Review.findOne({
@@ -167,9 +179,11 @@ export const checkExistingReview = async (req: CustomRequest, res: Response) => 
         });
 
         res.status(200).json({ hasReviewed: !!review });
-    } catch (error) {
+        // No explicit return needed here; sending response ends the handler.
+
+    } catch (error: any) { // Added 'any' for error type, or be more specific
         console.error("Error checking existing review:", error);
-        res.status(500).json({ message: "Failed to check review status." });
+        res.status(500).json({ message: "Failed to check review status.", error: error.message });
     }
 };
 
@@ -179,55 +193,74 @@ export const checkExistingReview = async (req: CustomRequest, res: Response) => 
 // No major changes to its core logic. 
 // The `chat_id` field in returned reviews will now be `null` for reviews submitted without chat context.
 export const getReviewsForUser = async (req: Request, res: Response): Promise<void> => {
-  try {
-       const userId = parseInt(req.params.userId, 10);
-       if (isNaN(userId)) { res.status(400).json({ message: 'Invalid User ID.' }); return; }
-
-       const reviews = await Review.findAll({
-          where: { reviewed_user_id: userId },
-          include: [
-              {
-                  model: User,
-                  as: 'reviewer', // Ensure this alias is correctly defined in your Review model associations
-                  attributes: ['user_id', 'fullname', 'user_type'],
-                  // Assuming User model has these associations defined with these aliases
-                  include: [ 
-                      { model: require('../models/Artist').default, as: 'artistProfile', attributes: ['profile_picture'], required: false },
-                      { model: require('../models/Employer').default, as: 'employerProfile', attributes: ['profile_picture'], required: false }
-                  ]
-              }
-          ],
-          order: [['created_at', 'DESC']]
-       });
-
-       const formattedReviews = reviews.map(review => {
-           const reviewData = review.get({ plain: true }) as any; 
-           const reviewerInfo = reviewData.reviewer;
-           let reviewerProfilePic: string | null = null;
-
-           if (reviewerInfo) {
-                reviewerProfilePic = reviewerInfo.artistProfile?.profile_picture || reviewerInfo.employerProfile?.profile_picture || null;
-           }
-
-           return {
-               review_id: reviewData.review_id,
-               chat_id: reviewData.chat_id, // This will be null for reviews made without chat context
-               overall_rating: reviewData.overall_rating,
-               specific_answers: reviewData.specific_answers,
-               created_at: reviewData.created_at,
-               reviewer: reviewerInfo ? {
-                   user_id: reviewerInfo.user_id,
-                   fullname: reviewerInfo.fullname,
-                   profile_picture: reviewerProfilePic,
-                   user_type: reviewerInfo.user_type 
-               } : null
-           };
-       });
-
-       res.status(200).json({ reviews: formattedReviews });
-
-  } catch (error: any) {
-       console.error(`Error fetching reviews for user ${req.params.userId}:`, error);
-       res.status(500).json({ message: 'Failed to fetch reviews.', error: error.message });
-  }
-};
+    try {
+         const userId = parseInt(req.params.userId, 10);
+         if (isNaN(userId)) { 
+             res.status(400).json({ message: 'Invalid User ID.' }); 
+             return; 
+         }
+  
+         const reviewsInstances = await Review.findAll({
+            where: { reviewed_user_id: userId },
+            include: [
+                {
+                    model: User,
+                    as: 'reviewer', 
+                    attributes: ['user_id', 'fullname', 'user_type'],
+                    include: [ 
+                        { model: Artist, as: 'artistProfile', attributes: ['profile_picture'], required: false },
+                        { model: Employer, as: 'employerProfile', attributes: ['profile_picture'], required: false }
+                    ]
+                }
+            ],
+            order: [['created_at', 'DESC']] // This relies on 'created_at' in DB, which is fine with underscored:true
+         });
+  
+         const formattedReviews = reviewsInstances.map(reviewInstance => {
+             // 1. Access the 'reviewer' association (User instance) directly from the reviewInstance
+             const reviewerInstance = reviewInstance.reviewer;
+             let formattedReviewerData: any = null; // Or a more specific interface
+  
+             if (reviewerInstance) {
+                 let reviewerProfilePic: string | null = null;
+                 // Access nested profiles (artistProfile/employerProfile) on the reviewerInstance (User instance)
+                 // These 'artistProfile' and 'employerProfile' must be declared in your User model class
+                 if (reviewerInstance.user_type === 'Artist' && reviewerInstance.artistProfile) {
+                     reviewerProfilePic = reviewerInstance.artistProfile.profile_picture;
+                 } else if (reviewerInstance.user_type === 'Employer' && reviewerInstance.employerProfile) {
+                     reviewerProfilePic = reviewerInstance.employerProfile.profile_picture;
+                 }
+  
+                 formattedReviewerData = {
+                     user_id: reviewerInstance.user_id,
+                     fullname: reviewerInstance.fullname,
+                     user_type: reviewerInstance.user_type,
+                     profile_picture: reviewerProfilePic || null
+                 };
+             }
+  
+             // 2. Access timestamp from the reviewInstance (as declared in your Review class)
+             // Your Review class has `public readonly created_at!: Date;`
+             const createdAtFromInstance = reviewInstance.created_at; 
+  
+             // 3. Get the plain object for the review's own direct attributes
+             const plainReviewBase = reviewInstance.get({ plain: true });
+  
+             return {
+                 review_id: plainReviewBase.review_id,
+                 chat_id: plainReviewBase.chat_id, 
+                 overall_rating: plainReviewBase.overall_rating,
+                 specific_answers: plainReviewBase.specific_answers,
+                 // Use the timestamp accessed from the instance, then format it for JSON
+                 created_at: createdAtFromInstance ? createdAtFromInstance.toISOString() : null, 
+                 reviewer: formattedReviewerData
+             };
+         });
+  
+         res.status(200).json({ reviews: formattedReviews });
+  
+    } catch (error: any) {
+         console.error(`Error fetching reviews for user ${req.params.userId}:`, error);
+         res.status(500).json({ message: 'Failed to fetch reviews.', error: error.message });
+    }
+  };
