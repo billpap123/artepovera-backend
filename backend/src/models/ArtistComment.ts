@@ -26,8 +26,8 @@ class ArtistComment extends Model<ArtistCommentAttributes, ArtistCommentCreation
 
   // Standard Sequelize instance properties for timestamps (camelCase)
   // These are automatically added by Sequelize if timestamps: true
-  public readonly createdAt!: Date;
-  public readonly updatedAt!: Date;
+  public readonly created_at!: Date;
+  public readonly updated_at!: Date;
 
   // --- Declarations for Associated Models ---
   // These names MUST match the 'as' alias used in your associations
