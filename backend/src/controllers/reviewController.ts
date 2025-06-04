@@ -152,7 +152,26 @@ export const getAverageRatingForUser = async (req: Request, res: Response): Prom
     }
   };
   
+// In reviewController.ts
+export const checkExistingReview = async (req: CustomRequest, res: Response) => {
+    try {
+        const reviewerId = parseInt(req.query.reviewerId as string, 10);
+        const reviewedUserId = parseInt(req.query.reviewedUserId as string, 10);
 
+        if (isNaN(reviewerId) || isNaN(reviewedUserId)) {
+            return res.status(400).json({ message: "Invalid user IDs." });
+        }
+
+        const review = await Review.findOne({
+            where: { reviewer_user_id: reviewerId, reviewed_user_id: reviewedUserId }
+        });
+
+        res.status(200).json({ hasReviewed: !!review });
+    } catch (error) {
+        console.error("Error checking existing review:", error);
+        res.status(500).json({ message: "Failed to check review status." });
+    }
+};
 
 /* -------------------------------------------------------------------------- */
 /* GET REVIEWS RECEIVED BY A USER                     */

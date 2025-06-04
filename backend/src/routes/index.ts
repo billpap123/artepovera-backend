@@ -13,6 +13,7 @@ import { authenticate } from '../middleware/authMiddleware';
 import * as portfolioController from '../controllers/portfolioController';
 // REMOVED: import { upload } from '../controllers/portfolioController'; // Correctly removed
 import * as reviewController from '../controllers/reviewController';
+import * as artistSupportController from '../controllers/artistSupportController';
 
 import { getLocations } from '../controllers/locationController';
 import {
@@ -37,6 +38,27 @@ router.put('/notifications/:notificationId', authenticate, markNotificationAsRea
 router.put('/notifications/:userId/all-read', authenticate, markAllNotificationsAsRead);
 router.delete('/notifications/:notificationId', authenticate, deleteNotification);
 router.delete('/notifications/:userId/all', authenticate, deleteAllNotifications);
+
+// Route to toggle support for a user (profile user ID in params)
+// Applying to /api/users/:userId/support where :userId is the one being supported
+router.post(
+  '/users/:userId/support',
+  authenticate, // Ensures user is logged in
+  artistSupportController.toggleSupport
+);
+
+// Route to get support status and count for a user (profile user ID in params)
+// Applying to /api/users/:userId/support-status
+router.get(
+  '/users/:userId/support-status',
+  authenticate, // Make authenticate optional if you want non-logged-in users to see count
+                 // If authenticate is kept, req.user will be null for non-logged-in, handled by controller
+  artistSupportController.getSupportStatusAndCount
+);
+// If you want GET /support-status to be public (not requiring login to see counts),
+// you might make a version of 'authenticate' that sets req.user but doesn't reject if no token,
+// or simply remove 'authenticate' and let the controller handle req.user being potentially undefined.
+// For simplicity, I've kept 'authenticate', assuming the controller handles optional req.user for GET.
 
 // --- User routes ---
 router.post('/users/register', userController.createUser);

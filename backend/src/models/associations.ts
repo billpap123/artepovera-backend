@@ -8,7 +8,7 @@ import JobPosting from './JobPosting';
 import Review from './Review';
 import Portfolio from './Portfolio';
 import JobApplication from './JobApplication';
-
+import ArtistSupport from './ArtistSupport';
 // 1) User <-> Artist Profile
 User.hasOne(Artist, { foreignKey: 'user_id', as: 'artistProfile' });
 Artist.belongsTo(User, { foreignKey: 'user_id', as: 'user' }); // <<< CORRECTED ALIAS to 'user'
@@ -93,7 +93,25 @@ JobApplication.belongsTo(JobPosting, { foreignKey: 'job_id', as: 'jobPostingDeta
 
 User.hasMany(JobApplication, { foreignKey: 'artist_user_id', as: 'jobApplicationsMade' });
 JobApplication.belongsTo(User, { foreignKey: 'artist_user_id', as: 'applyingArtistDetails' });
+// User (as supporter) -> ArtistSupport
+User.hasMany(ArtistSupport, {
+  foreignKey: 'supporter_artist_user_id',
+  as: 'givenSupports'
+});
+ArtistSupport.belongsTo(User, {
+  foreignKey: 'supporter_artist_user_id',
+  as: 'supporterArtist'
+});
 
+// User (as supported) -> ArtistSupport
+User.hasMany(ArtistSupport, {
+  foreignKey: 'supported_artist_user_id',
+  as: 'receivedSupports'
+});
+ArtistSupport.belongsTo(User, {
+  foreignKey: 'supported_artist_user_id',
+  as: 'supportedArtist'
+});
 // Make sure this file is imported ONCE in your application (e.g., in server.ts)
 // AFTER all models are defined and initialized by Sequelize.
 // Example: import './models/associations';
