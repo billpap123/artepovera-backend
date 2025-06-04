@@ -1,18 +1,17 @@
 // src/models/ArtistComment.ts
 import { Model, DataTypes, Optional, Sequelize } from 'sequelize';
-import sequelizeInstance from '../config/db'; // Your Sequelize instance
-// User model will be associated in associations.ts, no need to import here for definition usually
+import sequelizeInstance from '../config/db';
+import User from './User'; // <<< IMPORT THE USER MODEL
 
 export interface ArtistCommentAttributes {
   comment_id: number;
-  profile_user_id: number; // The user_id of the artist whose profile is being commented on
-  commenter_user_id: number; // The user_id of the artist who wrote the comment
+  profile_user_id: number;
+  commenter_user_id: number;
   comment_text: string;
   created_at?: Date;
   updated_at?: Date;
 }
 
-// Some attributes are optional in creation (like comment_id, created_at, updated_at)
 interface ArtistCommentCreationAttributes extends Optional<ArtistCommentAttributes, 'comment_id' | 'created_at' | 'updated_at'> {}
 
 class ArtistComment extends Model<ArtistCommentAttributes, ArtistCommentCreationAttributes> implements ArtistCommentAttributes {
@@ -24,10 +23,12 @@ class ArtistComment extends Model<ArtistCommentAttributes, ArtistCommentCreation
   public readonly created_at!: Date;
   public readonly updated_at!: Date;
 
-  // Associations can be defined here or (preferably) in a central associations file
-  // For example:
-  // public readonly commenter?: User;
-  // public readonly commentedProfile?: User;
+  // --- ADD DECLARATIONS FOR ASSOCIATED MODELS ---
+  // These names MUST match the 'as' alias used in your associations
+  // and in your controller's 'include' statements.
+  public readonly commenterArtist?: User; // For the User who wrote the comment
+  public readonly commentedProfileUser?: User; // For the User whose profile was commented on
+  // --- END ADD ---
 }
 
 ArtistComment.init({
@@ -50,12 +51,11 @@ ArtistComment.init({
     type: DataTypes.TEXT,
     allowNull: false,
   },
-  // created_at and updated_at are handled by Sequelize's timestamps option
 }, {
   sequelize: sequelizeInstance,
-  tableName: 'artist_profile_comments', // Choose your table name
-  timestamps: true, // This will add created_at and updated_at fields
-  underscored: true, // For created_at and updated_at to be snake_case in DB
+  tableName: 'artist_profile_comments',
+  timestamps: true,
+  underscored: true,
 });
 
 export default ArtistComment;

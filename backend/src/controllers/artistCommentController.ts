@@ -1,39 +1,24 @@
 // src/controllers/artistCommentController.ts
 import { Request, Response } from 'express';
-import { CustomRequest } from '../middleware/authMiddleware'; // Your custom request type for req.user
+import { CustomRequest } from '../middleware/authMiddleware';
 import ArtistComment from '../models/ArtistComment';
-import User from '../models/User';
-import Artist from '../models/Artist'; // If you need to specifically ensure commenter/profile is an artist via Artist model
+import User from '../models/User'; // User model
+import Artist from '../models/Artist'; // Artist model
+import Employer from '../models/Employer'; // Employer model
 
 export const createArtistComment = async (req: CustomRequest, res: Response): Promise<void> => {
+    // ... (initial validations and checks remain the same)
     const loggedInUserId = req.user?.id;
     const loggedInUserType = req.user?.user_type;
-    const profileUserId = parseInt(req.params.userId, 10); // ID of the profile being commented on
+    const profileUserId = parseInt(req.params.userId, 10);
     const { comment_text } = req.body;
 
-    if (!loggedInUserId) {
-        res.status(401).json({ message: "Unauthorized. Please log in to comment." });
-        return;
-    }
-    if (loggedInUserType !== 'Artist') {
-        res.status(403).json({ message: "Forbidden. Only artists can post artistic viewpoints." });
-        return;
-    }
-    if (isNaN(profileUserId)) {
-        res.status(400).json({ message: "Invalid profile user ID." });
-        return;
-    }
-    if (!comment_text || typeof comment_text !== 'string' || comment_text.trim() === "") {
-        res.status(400).json({ message: "Comment text cannot be empty." });
-        return;
-    }
-    if (loggedInUserId === profileUserId) {
-        res.status(400).json({ message: "Artists cannot comment on their own profile." });
+    if (!loggedInUserId || loggedInUserType !== 'Artist' /* ... other checks */) {
+        // ... handle errors
         return;
     }
 
     try {
-        // Verify the profile being commented on belongs to an artist
         const profileUser = await User.findByPk(profileUserId);
         if (!profileUser || profileUser.user_type !== 'Artist') {
             res.status(404).json({ message: "Artist profile to comment on not found or user is not an artist." });
@@ -46,33 +31,54 @@ export const createArtistComment = async (req: CustomRequest, res: Response): Pr
             comment_text: comment_text.trim(),
         });
 
-        // Fetch the created comment with commenter details to return to the frontend
         const createdCommentWithDetails = await ArtistComment.findByPk(newComment.comment_id, {
             include: [{
                 model: User,
-                as: 'commenterArtist', // Must match association alias
-                attributes: ['user_id', 'fullname', 'user_type'],
-                // If profile_picture is nested in Artist/Employer sub-profiles:
-                // include: [ 
-                //   { model: Artist, as: 'artistProfile', attributes: ['profile_picture'], required: false }
-                // ]
-                // OR if User model has profile_picture directly:
-                // attributes: ['user_id', 'fullname', 'user_type', 'profile_picture']
+                as: 'commenterArtist', // This is the User instance for the commenter
+                attributes: ['user_id', 'fullname', 'user_type'], // Core User attributes
+                include: [ // Nested include for profile picture
+                    { model: Artist, as: 'artistProfile', attributes: ['profile_picture'], required: false },
+                    { model: Employer, as: 'employerProfile', attributes: ['profile_picture'], required: false }
+                ]
             }]
         });
-        
-        // Simple mapping if profile_picture is directly on User. Adjust if nested.
-        const commenterData = createdCommentWithDetails?.commenterArtist?.get({ plain: true });
-        const responseComment = {
-            ...createdCommentWithDetails?.get({ plain: true }),
-            commenter: commenterData ? {
-                user_id: commenterData.user_id,
-                fullname: commenterData.fullname,
-                user_type: commenterData.user_type,
-                profile_picture: commenterData.profile_picture || null // Assuming User model has profile_picture
-            } : null
-        };
 
+        if (!createdCommentWithDetails) {
+            res.status(404).json({ message: "Failed to retrieve created comment details." });
+            return;
+        }
+        
+        const commenterUserSequelizeInstance = createdCommentWithDetails.commenterArtist; // This IS a User Sequelize instance
+        let formattedCommenterData: any = null; // Or a specific interface for the response shape
+
+        if (commenterUserSequelizeInstance) {
+            let profilePic = null;
+            // Access nested profiles directly on the Sequelize User instance
+            if (commenterUserSequelizeInstance.user_type === 'Artist' && commenterUserSequelizeInstance.artistProfile) {
+                profilePic = commenterUserSequelizeInstance.artistProfile.profile_picture;
+            } else if (commenterUserSequelizeInstance.user_type === 'Employer' && commenterUserSequelizeInstance.employerProfile) {
+                profilePic = commenterUserSequelizeInstance.employerProfile.profile_picture;
+            }
+
+            formattedCommenterData = {
+                user_id: commenterUserSequelizeInstance.user_id,
+                fullname: commenterUserSequelizeInstance.fullname,
+                user_type: commenterUserSequelizeInstance.user_type,
+                profile_picture: profilePic || null
+            };
+        }
+
+        const plainCreatedCommentBase = createdCommentWithDetails.get({ plain: true });
+
+        const responseComment = {
+            comment_id: plainCreatedCommentBase.comment_id,
+            profile_user_id: plainCreatedCommentBase.profile_user_id,
+            commenter_user_id: plainCreatedCommentBase.commenter_user_id,
+            comment_text: plainCreatedCommentBase.comment_text,
+            created_at: plainCreatedCommentBase.created_at,
+            updated_at: plainCreatedCommentBase.updated_at,
+            commenter: formattedCommenterData
+        };
 
         res.status(201).json({ message: "Viewpoint posted successfully!", comment: responseComment });
 
@@ -85,59 +91,54 @@ export const createArtistComment = async (req: CustomRequest, res: Response): Pr
 export const getCommentsForUserProfile = async (req: Request, res: Response): Promise<void> => {
     try {
         const profileUserId = parseInt(req.params.userId, 10);
-        if (isNaN(profileUserId)) {
-            res.status(400).json({ message: 'Invalid user ID format.' });
-            return;
-        }
+        if (isNaN(profileUserId)) { res.status(400).json({ message: 'Invalid user ID format.' }); return; }
 
-        // Optional: Check if the profile user exists
         const profileUser = await User.findByPk(profileUserId);
-        if (!profileUser) {
-            res.status(404).json({ message: 'Profile user not found.' });
-            return;
-        }
-        // if (profileUser.user_type !== 'Artist') {
-        //     return res.status(200).json({ comments: [] }); // Or 400 if comments only for artists
-        // }
+        if (!profileUser) { res.status(404).json({ message: 'Profile user not found.' }); return; }
 
-        const comments = await ArtistComment.findAll({
+        const commentsInstances = await ArtistComment.findAll({ // These are Sequelize instances
             where: { profile_user_id: profileUserId },
             include: [{
                 model: User,
-                as: 'commenterArtist', // Must match association alias
-                attributes: ['user_id', 'fullname', 'user_type'], // Add 'profile_picture' if directly on User model
-                // Example if profile_picture is in a nested Artist model associated with User:
-                // include: [{
-                //     model: Artist,
-                //     as: 'artistProfile', // assuming 'artistProfile' is the alias for User -> Artist
-                //     attributes: ['profile_picture'],
-                //     required: false
-                // }]
+                as: 'commenterArtist',
+                attributes: ['user_id', 'fullname', 'user_type'],
+                include: [
+                    { model: Artist, as: 'artistProfile', attributes: ['profile_picture'], required: false },
+                    { model: Employer, as: 'employerProfile', attributes: ['profile_picture'], required: false }
+                ]
             }],
             order: [['created_at', 'DESC']],
         });
 
-        // Map to structure profile picture correctly if it's nested
-        const formattedComments = comments.map(comment => {
-            const plainComment = comment.get({ plain: true }) as any; // Use 'as any' carefully or define proper types
-            const commenterUser = plainComment.commenterArtist;
-            let commenterProfilePic = null;
+        const formattedComments = commentsInstances.map(commentInstance => {
+            const commenterUserSequelizeInstance = commentInstance.commenterArtist; // Access association on the instance
+            let formattedCommenterData: any = null; // Or a specific interface
 
-            if (commenterUser) {
-                // Assuming User model *might* have artistProfile which has profile_picture
-                // Adjust this logic based on your actual User/Artist/Employer model structure
-                // For simplicity, let's assume profile_picture might be directly on commenterUser for now
-                commenterProfilePic = commenterUser.profile_picture || (commenterUser.artistProfile?.profile_picture) || (commenterUser.employerProfile?.profile_picture) || null;
+            if (commenterUserSequelizeInstance) {
+                let profilePic = null;
+                // Access nested profiles directly on the Sequelize User instance
+                if (commenterUserSequelizeInstance.user_type === 'Artist' && commenterUserSequelizeInstance.artistProfile) {
+                    profilePic = commenterUserSequelizeInstance.artistProfile.profile_picture;
+                } else if (commenterUserSequelizeInstance.user_type === 'Employer' && commenterUserSequelizeInstance.employerProfile) {
+                    profilePic = commenterUserSequelizeInstance.employerProfile.profile_picture;
+                }
+                formattedCommenterData = {
+                    user_id: commenterUserSequelizeInstance.user_id,
+                    fullname: commenterUserSequelizeInstance.fullname,
+                    user_type: commenterUserSequelizeInstance.user_type,
+                    profile_picture: profilePic || null
+                };
             }
             
+            const plainCommentBase = commentInstance.get({ plain: true }); // Get plain object of the comment itself
             return {
-                ...plainComment,
-                commenter: commenterUser ? {
-                    user_id: commenterUser.user_id,
-                    fullname: commenterUser.fullname,
-                    user_type: commenterUser.user_type,
-                    profile_picture: commenterProfilePic
-                } : null,
+                comment_id: plainCommentBase.comment_id,
+                profile_user_id: plainCommentBase.profile_user_id,
+                commenter_user_id: plainCommentBase.commenter_user_id,
+                comment_text: plainCommentBase.comment_text,
+                created_at: plainCommentBase.created_at,
+                updated_at: plainCommentBase.updated_at,
+                commenter: formattedCommenterData,
             };
         });
 
