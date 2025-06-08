@@ -1,5 +1,5 @@
 // src/routes/index.ts
-import { NextFunction, Router } from 'express';
+import { Router } from 'express';
 // REMOVED: import fs from 'fs'; // No longer needed
 // REMOVED: import path from 'path'; // No longer needed unless used elsewhere in routes
 import * as userController from '../controllers/userController';
