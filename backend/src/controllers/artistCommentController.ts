@@ -162,3 +162,36 @@ export const getCommentsForUserProfile = async (req: Request, res: Response): Pr
         res.status(500).json({ message: 'Failed to fetch viewpoints.', error: error.message });
     }
 };
+
+export const checkExistingComment = async (req: CustomRequest, res: Response): Promise<void> => {
+    try {
+        const commenterId = req.user?.id; // Get ID from authenticated token
+        const profileUserId = parseInt(req.params.userId, 10);
+
+        if (!commenterId) {
+            // If there's no logged-in user, they haven't commented.
+            // Sending hasCommented: false is safe.
+            res.status(200).json({ hasCommented: false });
+            return;
+        }
+
+        if (isNaN(profileUserId)) {
+            res.status(400).json({ message: "Invalid profile user ID." });
+            return;
+        }
+
+        const comment = await ArtistComment.findOne({
+            where: { 
+                commenter_user_id: commenterId,
+                profile_user_id: profileUserId 
+            }
+        });
+
+        // Send back true if a comment was found, false otherwise
+        res.status(200).json({ hasCommented: !!comment });
+
+    } catch (error: any) {
+        console.error("Error checking existing artist comment:", error);
+        res.status(500).json({ message: "Failed to check comment status." });
+    }
+};

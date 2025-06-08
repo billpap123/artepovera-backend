@@ -1,5 +1,5 @@
 // src/routes/index.ts
-import { Router } from 'express';
+import { NextFunction, Router } from 'express';
 // REMOVED: import fs from 'fs'; // No longer needed
 // REMOVED: import path from 'path'; // No longer needed unless used elsewhere in routes
 import * as userController from '../controllers/userController';
@@ -159,6 +159,14 @@ router.post(
   '/users/:userId/comments', // userId is the ID of the profile being commented on
   authenticate, // Ensures the commenter is logged in
   artistCommentController.createArtistComment
+
+);
+
+// --- ADD THIS NEW ROUTE FOR CHECKING ---
+router.get(
+  '/users/:userId/comments/check', // A clear path for checking status
+  authenticate, // User must be logged in to check if *they* have commented
+  artistCommentController.checkExistingComment
 );
 // --- END ARTIST PROFILE COMMENTS ROUTES ---
 
