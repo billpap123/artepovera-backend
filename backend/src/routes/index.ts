@@ -162,5 +162,11 @@ router.post(
 );
 // --- END ARTIST PROFILE COMMENTS ROUTES ---
 
+// --- ADD THIS NEW ROUTE ---
+router.get(
+  '/reviews/check', // Matches the path your frontend is calling
+  authenticate,     // Ensures user is logged in to check this status
+  reviewController.checkExistingReview
+);
 
 export default router;

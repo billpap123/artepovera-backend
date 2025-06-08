@@ -215,36 +215,31 @@ export const getReviewsForUser = async (req: Request, res: Response): Promise<vo
                     ]
                 }
             ],
-            order: [[sequelizeInstance.col('created_at'), 'DESC']]
+            // --- MODIFIED ORDER CLAUSE TO BE UNAMBIGUOUS ---
+            // Explicitly state you are ordering by the 'created_at' column of the 'Review' model
+            order: [[Review, 'created_at', 'DESC']]
+            // --- END MODIFICATION ---
          });
   
          const formattedReviews = reviewsInstances.map(reviewInstance => {
-             // --- DEFINE formattedReviewerData INSIDE THE MAP CALLBACK ---
-             const reviewerInstance = reviewInstance.reviewer; // This is a User Sequelize instance (or undefined)
-             let formattedReviewerData: { // Define a more specific type if you have one
-                  user_id: number;
-                  fullname: string;
-                  user_type: string;
-                  profile_picture: string | null;
-             } | null = null;
+             // ... (your existing mapping logic which is now correct for timestamps) ...
+             const reviewerInstance = reviewInstance.reviewer;
+             let formattedReviewerData: any = null;
   
              if (reviewerInstance) {
                  let reviewerProfilePic: string | null = null;
-                 // Access nested profiles on the reviewerInstance
                  if (reviewerInstance.user_type === 'Artist' && reviewerInstance.artistProfile) {
                      reviewerProfilePic = reviewerInstance.artistProfile.profile_picture;
                  } else if (reviewerInstance.user_type === 'Employer' && reviewerInstance.employerProfile) {
                      reviewerProfilePic = reviewerInstance.employerProfile.profile_picture;
                  }
-  
-                 formattedReviewerData = { // Assign value to the locally scoped variable
+                 formattedReviewerData = {
                      user_id: reviewerInstance.user_id,
                      fullname: reviewerInstance.fullname,
                      user_type: reviewerInstance.user_type,
                      profile_picture: reviewerProfilePic || null
                  };
              }
-             // --- formattedReviewerData IS NOW DEFINED ---
              
              const plainReviewBase = reviewInstance.get({ plain: true });
   
@@ -253,9 +248,9 @@ export const getReviewsForUser = async (req: Request, res: Response): Promise<vo
                  chat_id: plainReviewBase.chat_id, 
                  overall_rating: plainReviewBase.overall_rating,
                  specific_answers: plainReviewBase.specific_answers,
-                 created_at: reviewInstance.createdAt ? reviewInstance.createdAt.toISOString() : null, 
+                 created_at: reviewInstance.createdAt ? reviewInstance.createdAt.toISOString() : null,
                  updated_at: reviewInstance.updatedAt ? reviewInstance.updatedAt.toISOString() : null,
-                 reviewer: formattedReviewerData // <<< NOW USING THE CORRECTLY SCOPED VARIABLE
+                 reviewer: formattedReviewerData
              };
          });
   
@@ -266,3 +261,4 @@ export const getReviewsForUser = async (req: Request, res: Response): Promise<vo
          res.status(500).json({ message: 'Failed to fetch reviews.', error: error.message });
     }
   };
+  
