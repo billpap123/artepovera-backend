@@ -194,6 +194,9 @@ export const checkExistingReview = async (req: CustomRequest, res: Response): Pr
 // No major changes to its core logic. 
 // The `chat_id` field in returned reviews will now be `null` for reviews submitted without chat context.
 
+/* -------------------------------------------------------------------------- */
+/* GET REVIEWS RECEIVED BY A USER                                             */
+/* -------------------------------------------------------------------------- */
 export const getReviewsForUser = async (req: Request, res: Response): Promise<void> => {
     try {
          const userId = parseInt(req.params.userId, 10);
@@ -215,14 +218,12 @@ export const getReviewsForUser = async (req: Request, res: Response): Promise<vo
                     ]
                 }
             ],
-            // --- MODIFIED ORDER CLAUSE TO BE UNAMBIGUOUS ---
-            // Explicitly state you are ordering by the 'created_at' column of the 'Review' model
-            order: [[Review, 'created_at', 'DESC']]
-            // --- END MODIFICATION ---
+            // --- THIS IS THE CORRECTED LINE ---
+            order: [[sequelizeInstance.col('Review.created_at'), 'DESC']]
+            // --- END CORRECTION ---
          });
   
          const formattedReviews = reviewsInstances.map(reviewInstance => {
-             // ... (your existing mapping logic which is now correct for timestamps) ...
              const reviewerInstance = reviewInstance.reviewer;
              let formattedReviewerData: any = null;
   
@@ -248,6 +249,7 @@ export const getReviewsForUser = async (req: Request, res: Response): Promise<vo
                  chat_id: plainReviewBase.chat_id, 
                  overall_rating: plainReviewBase.overall_rating,
                  specific_answers: plainReviewBase.specific_answers,
+                 // This logic for accessing timestamps is correct based on our previous discussions
                  created_at: reviewInstance.createdAt ? reviewInstance.createdAt.toISOString() : null,
                  updated_at: reviewInstance.updatedAt ? reviewInstance.updatedAt.toISOString() : null,
                  reviewer: formattedReviewerData
@@ -261,4 +263,3 @@ export const getReviewsForUser = async (req: Request, res: Response): Promise<vo
          res.status(500).json({ message: 'Failed to fetch reviews.', error: error.message });
     }
   };
-  
