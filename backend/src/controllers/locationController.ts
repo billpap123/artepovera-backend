@@ -1,32 +1,45 @@
+// src/controllers/locationController.ts
 import { Request, Response } from 'express';
 import User from '../models/User';
-import { Sequelize } from 'sequelize';
+import { Sequelize, Op, WhereOptions } from 'sequelize'; // Import Op
 
 export const getLocations = async (req: Request, res: Response): Promise<void> => {
     try {
-        const userType = req.query.userType as 'Artist' | 'Employer';
+        const userType = req.query.userType as 'Artist' | 'Employer' | undefined;
 
-        // Validate userType
-        if (!['Artist', 'Employer'].includes(userType)) {
-            res.status(400).json({ message: 'Invalid user type' });
-            return;
+        const whereClause: WhereOptions = {};
+
+        if (userType) {
+            if (!['Artist', 'Employer'].includes(userType)) {
+                res.status(400).json({ message: 'Invalid user type specified' });
+                return;
+            }
+            whereClause.user_type = userType;
+        } else {
+            // If NO userType is specified, get both Artists and Employers
+            whereClause.user_type = {
+                [Op.in]: ['Artist', 'Employer']
+            };
         }
 
-        // Query users by user type
         const users = await User.findAll({
-            where: { user_type: userType },
+            where: whereClause,
             attributes: [
                 'user_id',
                 'fullname',
-                [Sequelize.fn('ST_AsText', Sequelize.col('location')), 'location'], // Convert location geometry to WKT text
+                'user_type',
+                [Sequelize.fn('ST_AsText', Sequelize.col('location')), 'location'],
             ],
         });
 
-        // Parse WKT format to JSON
         const formattedUsers = users
             .map(user => {
-                const locationText = user.getDataValue('location') as unknown as string; // Cast 'location' to string
-                if (!locationText || !locationText.startsWith('POINT')) return null; // Skip invalid locations
+                // --- THIS IS THE CORRECTED LINE ---
+                // First cast to 'unknown', then to 'string'. This tells TypeScript we are sure about the type conversion.
+                const locationText = user.getDataValue('location') as unknown as string | null;
+                // --- END CORRECTION ---
+
+                if (!locationText || !locationText.startsWith('POINT')) return null;
 
                 const coordinates = locationText
                     .replace('POINT(', '')
@@ -34,18 +47,23 @@ export const getLocations = async (req: Request, res: Response): Promise<void> =
                     .split(' ')
                     .map(Number);
 
+                const plainUser = user.toJSON();
+
                 return {
-                    ...user.toJSON(),
+                    user_id: plainUser.user_id,
+                    fullname: plainUser.fullname,
+                    user_type: plainUser.user_type,
                     location: {
-                        latitude: coordinates[1], // Latitude is the second value
-                        longitude: coordinates[0], // Longitude is the first value
+                        latitude: coordinates[1],
+                        longitude: coordinates[0],
                     },
                 };
             })
             .filter(Boolean); // Remove null entries
 
-        res.status(200).json(formattedUsers);
-    } catch (error) {
+        res.status(200).json({ locations: formattedUsers });
+
+    } catch (error: any) {
         console.error('Error fetching locations:', error);
         res.status(500).json({ message: 'Server error', error: error.message });
     }
