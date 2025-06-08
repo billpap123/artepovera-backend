@@ -184,6 +184,8 @@ router.get('/admin/stats', authenticate, isAdmin, adminController.getDashboardSt
 router.get('/admin/users', authenticate, isAdmin, adminController.getAllUsers);
 router.get('/admin/users/:userId', authenticate, isAdmin, adminController.getUserById);
 router.delete('/admin/users/:userId', authenticate, isAdmin, adminController.deleteUserByAdmin);
+router.get('/admin/reviews', authenticate, isAdmin, adminController.getAllReviews);
+router.get('/admin/comments', authenticate, isAdmin, adminController.getAllArtistComments);
 
 router.delete('/admin/reviews/:reviewId', authenticate, isAdmin, adminController.deleteReviewByAdmin);
 router.delete('/admin/comments/:commentId', authenticate, isAdmin, adminController.deleteArtistCommentByAdmin);

@@ -171,3 +171,39 @@ export const deleteArtistCommentByAdmin = async (req: Request, res: Response): P
         res.status(500).json({ message: "Failed to delete artist comment." });
     }
 };
+
+export const getAllReviews = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const reviews = await Review.findAll({
+            include: [
+                { model: User, as: 'reviewer', attributes: ['user_id', 'fullname'] },
+                { model: User, as: 'reviewed', attributes: ['user_id', 'fullname'] } // Corrected alias from previous files
+            ],
+            order: [['createdAt', 'DESC']]
+        });
+        res.status(200).json(reviews);
+    } catch (error: any) {
+        console.error("Admin Error: Failed to fetch all reviews.", error);
+        res.status(500).json({ message: "Failed to fetch reviews." });
+    }
+};
+
+/**
+ * @description Admin: Fetches ALL artist comments in the system for moderation.
+ * @route GET /api/admin/comments
+ */
+export const getAllArtistComments = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const comments = await ArtistComment.findAll({
+            include: [
+                { model: User, as: 'commenterArtist', attributes: ['user_id', 'fullname'] },
+                { model: User, as: 'commentedProfileUser', attributes: ['user_id', 'fullname'] }
+            ],
+            order: [['createdAt', 'DESC']]
+        });
+        res.status(200).json(comments);
+    } catch (error: any) {
+        console.error("Admin Error: Failed to fetch all artist comments.", error);
+        res.status(500).json({ message: "Failed to fetch artist comments." });
+    }
+};
