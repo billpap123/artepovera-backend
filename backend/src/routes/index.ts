@@ -15,6 +15,8 @@ import * as portfolioController from '../controllers/portfolioController';
 import * as reviewController from '../controllers/reviewController';
 import * as artistSupportController from '../controllers/artistSupportController';
 import * as artistCommentController from '../controllers/artistCommentController'; // <<< ADD THIS
+import { isAdmin } from '../middleware/adminMiddleware';
+import * as adminController from '../controllers/adminController';
 
 import { getLocations } from '../controllers/locationController';
 import {
@@ -176,5 +178,14 @@ router.get(
   authenticate,     // Ensures user is logged in to check this status
   reviewController.checkExistingReview
 );
+
+// --- ADMIN ROUTES ---
+router.get('/admin/stats', authenticate, isAdmin, adminController.getDashboardStats);
+router.get('/admin/users', authenticate, isAdmin, adminController.getAllUsers);
+router.get('/admin/users/:userId', authenticate, isAdmin, adminController.getUserById);
+router.delete('/admin/users/:userId', authenticate, isAdmin, adminController.deleteUserByAdmin);
+
+router.delete('/admin/reviews/:reviewId', authenticate, isAdmin, adminController.deleteReviewByAdmin);
+router.delete('/admin/comments/:commentId', authenticate, isAdmin, adminController.deleteArtistCommentByAdmin);
 
 export default router;
