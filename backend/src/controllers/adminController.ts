@@ -7,7 +7,7 @@ import Employer from '../models/Employer';
 import JobPosting from '../models/JobPosting';
 import Review from '../models/Review';
 import ArtistComment from '../models/ArtistComment';
-
+import Portfolio from '../models/Portfolio';
 /*
 |--------------------------------------------------------------------------
 | Dashboard Stats
@@ -205,5 +205,98 @@ export const getAllArtistComments = async (req: Request, res: Response): Promise
     } catch (error: any) {
         console.error("Admin Error: Failed to fetch all artist comments.", error);
         res.status(500).json({ message: "Failed to fetch artist comments." });
+    }
+};
+
+
+/**
+ * @description Admin: Fetches ALL portfolio items.
+ * @route GET /api/admin/portfolios
+ */
+export const getAllPortfolioItems = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const items = await Portfolio.findAll({
+            include: [{
+                model: Artist,
+                as: 'artist',
+                attributes: ['artist_id'],
+                include: [{
+                    model: User,
+                    as: 'user',
+                    attributes: ['user_id', 'fullname']
+                }]
+            }],
+            order: [['createdAt', 'DESC']]
+        });
+        res.status(200).json(items);
+    } catch (error: any) {
+        console.error("Admin Error: Failed to fetch portfolio items.", error);
+        res.status(500).json({ message: "Failed to fetch portfolio items." });
+    }
+};
+
+/**
+ * @description Admin: Deletes a specific portfolio item by its ID.
+ * @route DELETE /api/admin/portfolios/:portfolioId
+ */
+export const deletePortfolioItemByAdmin = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const portfolioId = parseInt(req.params.portfolioId, 10);
+        const item = await Portfolio.findByPk(portfolioId);
+        if (!item) {
+            res.status(404).json({ message: "Portfolio item not found." });
+            return;
+        }
+        await item.destroy(); // This should also handle deleting the image from Cloudinary if you've set up hooks
+        res.status(200).json({ message: `Portfolio item ID ${portfolioId} has been deleted.` });
+    } catch (error: any) {
+        console.error(`Admin Error: Failed to delete portfolio item ${req.params.portfolioId}.`, error);
+        res.status(500).json({ message: "Failed to delete portfolio item." });
+    }
+};
+
+/**
+ * @description Admin: Fetches ALL job postings.
+ * @route GET /api/admin/jobs
+ */
+export const getAllJobPostingsByAdmin = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const jobs = await JobPosting.findAll({
+            include: [{
+                model: Employer,
+                as: 'employer',
+                attributes: ['employer_id'],
+                include: [{
+                    model: User,
+                    as: 'user',
+                    attributes: ['user_id', 'fullname']
+                }]
+            }],
+            order: [['createdAt', 'DESC']]
+        });
+        res.status(200).json(jobs);
+    } catch (error: any) {
+        console.error("Admin Error: Failed to fetch job postings.", error);
+        res.status(500).json({ message: "Failed to fetch job postings." });
+    }
+};
+
+/**
+ * @description Admin: Deletes a specific job posting by its ID.
+ * @route DELETE /api/admin/jobs/:jobId
+ */
+export const deleteJobPostingByAdmin = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const jobId = parseInt(req.params.jobId, 10);
+        const job = await JobPosting.findByPk(jobId);
+        if (!job) {
+            res.status(404).json({ message: "Job posting not found." });
+            return;
+        }
+        await job.destroy();
+        res.status(200).json({ message: `Job posting ID ${jobId} has been deleted.` });
+    } catch (error: any) {
+        console.error(`Admin Error: Failed to delete job posting ${req.params.jobId}.`, error);
+        res.status(500).json({ message: "Failed to delete job posting." });
     }
 };

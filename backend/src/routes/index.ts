@@ -190,4 +190,11 @@ router.get('/admin/comments', authenticate, isAdmin, adminController.getAllArtis
 router.delete('/admin/reviews/:reviewId', authenticate, isAdmin, adminController.deleteReviewByAdmin);
 router.delete('/admin/comments/:commentId', authenticate, isAdmin, adminController.deleteArtistCommentByAdmin);
 
+
+// Add these new routes for moderation
+router.get('/admin/portfolios', authenticate, isAdmin, adminController.getAllPortfolioItems);
+router.delete('/admin/portfolios/:portfolioId', authenticate, isAdmin, adminController.deletePortfolioItemByAdmin);
+
+router.get('/admin/jobs', authenticate, isAdmin, adminController.getAllJobPostingsByAdmin);
+router.delete('/admin/jobs/:jobId', authenticate, isAdmin, adminController.deleteJobPostingByAdmin);
 export default router;
