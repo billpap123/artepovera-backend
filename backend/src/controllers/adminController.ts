@@ -51,7 +51,7 @@ export const getDashboardStats = async (req: Request, res: Response): Promise<vo
 export const getAllUsers = async (req: Request, res: Response): Promise<void> => {
     try {
         const users = await User.findAll({
-            attributes: ['user_id', 'fullname', 'email', 'user_type', 'createdAt'],
+            attributes: ['user_id', 'fullname', 'email', 'user_type'],
             order: [['user_id', 'ASC']],
         });
         res.status(200).json(users);
