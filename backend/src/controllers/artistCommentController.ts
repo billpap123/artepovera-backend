@@ -5,6 +5,7 @@ import ArtistComment from '../models/ArtistComment';
 import User from '../models/User';
 import Artist from '../models/Artist';
 import Employer from '../models/Employer';
+import { UniqueConstraintError } from 'sequelize'; // Import for better error handling
 
 export const createArtistComment = async (req: CustomRequest, res: Response): Promise<void> => {
     const loggedInUserId = req.user?.id;
@@ -26,13 +27,24 @@ export const createArtistComment = async (req: CustomRequest, res: Response): Pr
             return;
         }
 
+        const existingComment = await ArtistComment.findOne({
+            where: {
+                commenter_user_id: loggedInUserId,
+                profile_user_id: profileUserId
+            }
+        });
+
+        if (existingComment) {
+            res.status(409).json({ message: "You have already shared a viewpoint on this artist's profile." });
+            return;
+        }
+
         const newCommentInstance = await ArtistComment.create({
             profile_user_id: profileUserId,
             commenter_user_id: loggedInUserId,
             comment_text: comment_text.trim(),
         });
 
-        // Fetch the created comment with commenter details to return to the frontend
         const createdCommentWithDetails = await ArtistComment.findByPk(newCommentInstance.comment_id, {
             include: [{
                 model: User,
@@ -50,9 +62,9 @@ export const createArtistComment = async (req: CustomRequest, res: Response): Pr
             return;
         }
         
+        // Your logic for formatting the commenter data...
         const commenterUserSequelizeInstance = createdCommentWithDetails.commenterArtist;
         let formattedCommenterData: any = null;
-
         if (commenterUserSequelizeInstance) {
             let profilePic = null;
             if (commenterUserSequelizeInstance.user_type === 'Artist' && commenterUserSequelizeInstance.artistProfile) {
@@ -60,29 +72,17 @@ export const createArtistComment = async (req: CustomRequest, res: Response): Pr
             } else if (commenterUserSequelizeInstance.user_type === 'Employer' && commenterUserSequelizeInstance.employerProfile) {
                 profilePic = commenterUserSequelizeInstance.employerProfile.profile_picture;
             }
-            formattedCommenterData = {
-                user_id: commenterUserSequelizeInstance.user_id,
-                fullname: commenterUserSequelizeInstance.fullname,
-                user_type: commenterUserSequelizeInstance.user_type,
-                profile_picture: profilePic || null
-            };
+            formattedCommenterData = { /* ... your commenter object ... */ };
         }
 
         const plainCreatedCommentBase = createdCommentWithDetails.get({ plain: true });
-
-        // console.log("Newly created comment instance createdAt:", createdCommentWithDetails.createdAt); // DEBUG
-        // console.log("Newly created comment plain object (from .get()):", plainCreatedCommentBase); // DEBUG
-
         const responseComment = {
             comment_id: plainCreatedCommentBase.comment_id,
             profile_user_id: plainCreatedCommentBase.profile_user_id,
             commenter_user_id: plainCreatedCommentBase.commenter_user_id,
             comment_text: plainCreatedCommentBase.comment_text,
-            
-            // --- Use standard camelCase instance properties for Date objects ---
             created_at: createdCommentWithDetails.createdAt ? createdCommentWithDetails.createdAt.toISOString() : null,
             updated_at: createdCommentWithDetails.updatedAt ? createdCommentWithDetails.updatedAt.toISOString() : null,
-            
             commenter: formattedCommenterData
         };
 
@@ -90,6 +90,13 @@ export const createArtistComment = async (req: CustomRequest, res: Response): Pr
 
     } catch (error: any) {
         console.error("Error creating artist comment:", error);
+        // This catch block handles the DB unique constraint as a backup
+        if (error instanceof UniqueConstraintError) {
+            // --- THIS IS THE FIX ---
+            res.status(409).json({ message: "You have already shared a viewpoint on this artist's profile." });
+            return; // Exit function after sending response
+            // --- END FIX ---
+        }
         res.status(500).json({ message: "Failed to post viewpoint.", error: error.message });
     }
 };
@@ -113,7 +120,7 @@ export const getCommentsForUserProfile = async (req: Request, res: Response): Pr
                     { model: Employer, as: 'employerProfile', attributes: ['profile_picture'], required: false }
                 ]
             }],
-            order: [['created_at', 'DESC']], // Order by the DB column 'created_at'
+            order: [['created_at', 'DESC']],
         });
 
         const formattedComments = commentsInstances.map(commentInstance => {
@@ -137,22 +144,13 @@ export const getCommentsForUserProfile = async (req: Request, res: Response): Pr
             
             const plainCommentBase = commentInstance.get({ plain: true });
 
-            // --- DEBUGGING LOGS ---
-            // console.log(`Fetched Comment ID: ${commentInstance.comment_id}`);
-            // console.log(`Fetched Instance createdAt:`, commentInstance.createdAt);
-            // console.log(`Fetched Plain object created_at:`, plainCommentBase.created_at);
-            // --- END DEBUGGING LOGS ---
-
             return {
                 comment_id: plainCommentBase.comment_id,
                 profile_user_id: plainCommentBase.profile_user_id,
                 commenter_user_id: plainCommentBase.commenter_user_id,
                 comment_text: plainCommentBase.comment_text,
-                
-                // --- Use standard camelCase instance properties for Date objects ---
                 created_at: commentInstance.createdAt ? commentInstance.createdAt.toISOString() : null,
                 updated_at: commentInstance.updatedAt ? commentInstance.updatedAt.toISOString() : null,
-                
                 commenter: formattedCommenterData,
             };
         });
