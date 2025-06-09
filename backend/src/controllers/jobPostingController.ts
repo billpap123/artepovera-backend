@@ -80,17 +80,18 @@ export const getAllJobPostings = async (req: CustomRequest, res: Response, next:
           include: [
               {
                   model: Employer,
-                  as: 'employer',
-                  attributes: ['employer_id', 'user_id'],
+                  as: 'employer', // This alias must match your JobPosting -> Employer association
+                  // --- MODIFIED: Select profile_picture from Employer directly ---
+                  attributes: ['employer_id', 'user_id', 'profile_picture'],
                   include: [{
                       model: User,
-                      as: 'user',
-                      attributes: ['user_id', 'fullname', 'profile_picture']
+                      as: 'user', // This alias must match your Employer -> User association
+                      // We only need the user's name from here now
+                      attributes: ['user_id', 'fullname']
                   }],
               },
           ],
-          // This now works because sequelizeInstance is imported
-          order: [[sequelizeInstance.col('JobPosting.createdAt'), 'DESC']]
+          order: [[JobPosting, 'createdAt', 'DESC']]
       });
       
       res.status(200).json(jobPostings);
@@ -99,6 +100,7 @@ export const getAllJobPostings = async (req: CustomRequest, res: Response, next:
       next(error);
   }
 };
+
 
 
 /**
