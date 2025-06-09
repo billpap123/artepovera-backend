@@ -1,5 +1,5 @@
 // src/controllers/adminController.ts
-import { Request, Response } from 'express';
+import { Request, Response, NextFunction } from 'express'; // <<< ADD NextFunction HERE
 import { Op } from 'sequelize';
 import User from '../models/User';
 import Artist from '../models/Artist';
@@ -8,6 +8,8 @@ import JobPosting from '../models/JobPosting';
 import Review from '../models/Review';
 import ArtistComment from '../models/ArtistComment';
 import Portfolio from '../models/Portfolio';
+import { CustomRequest } from '../middleware/authMiddleware';
+
 /*
 |--------------------------------------------------------------------------
 | Dashboard Stats
@@ -259,25 +261,34 @@ export const deletePortfolioItemByAdmin = async (req: Request, res: Response): P
  * @description Admin: Fetches ALL job postings.
  * @route GET /api/admin/jobs
  */
-export const getAllJobPostingsByAdmin = async (req: Request, res: Response): Promise<void> => {
+export const getAllJobPostings = async (req: CustomRequest, res: Response, next: NextFunction) => {
     try {
-        const jobs = await JobPosting.findAll({
-            include: [{
-                model: Employer,
-                as: 'employer',
-                attributes: ['employer_id'],
-                include: [{
-                    model: User,
-                    as: 'user',
-                    attributes: ['user_id', 'fullname']
-                }]
-            }],
-            order: [['createdAt', 'DESC']]
+        const jobPostings = await JobPosting.findAll({
+            include: [
+                {
+                    model: Employer,
+                    as: 'employer', // This alias must match your JobPosting -> Employer association
+                    attributes: ['employer_id', 'user_id'],
+                    include: [{
+                        model: User,
+                        as: 'user', // This alias must match your Employer -> User association
+                        attributes: ['user_id', 'fullname', 'profile_picture']
+                    }],
+                },
+            ],
+            // --- THIS IS THE CORRECTED ORDER CLAUSE ---
+            // Explicitly order by the 'createdAt' column of the 'JobPosting' model
+            order: [[JobPosting, 'createdAt', 'DESC']]
+            // --- END CORRECTION ---
         });
-        res.status(200).json(jobs);
-    } catch (error: any) {
-        console.error("Admin Error: Failed to fetch job postings.", error);
-        res.status(500).json({ message: "Failed to fetch job postings." });
+
+        // res.json() will call the .toJSON() method on the Sequelize instances,
+        // which will correctly serialize the model and its included associations.
+        res.status(200).json(jobPostings);
+
+    } catch (error) {
+        console.error('Error fetching job postings:', error);
+        next(error); // Pass error to your global error handler
     }
 };
 

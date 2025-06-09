@@ -195,6 +195,6 @@ router.delete('/admin/comments/:commentId', authenticate, isAdmin, adminControll
 router.get('/admin/portfolios', authenticate, isAdmin, adminController.getAllPortfolioItems);
 router.delete('/admin/portfolios/:portfolioId', authenticate, isAdmin, adminController.deletePortfolioItemByAdmin);
 
-router.get('/admin/jobs', authenticate, isAdmin, adminController.getAllJobPostingsByAdmin);
+router.get('/admin/jobs', authenticate, isAdmin, adminController.getAllJobPostings);
 router.delete('/admin/jobs/:jobId', authenticate, isAdmin, adminController.deleteJobPostingByAdmin);
 export default router;

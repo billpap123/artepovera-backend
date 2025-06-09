@@ -72,6 +72,10 @@ export const createJobPosting = async (req: CustomRequest, res: Response, next: 
 * @description Fetches all job postings with the new detailed structure.
 * @route GET /api/job-postings
 */
+/**
+* @description Fetches all job postings with the new detailed structure.
+* @route GET /api/job-postings
+*/
 export const getAllJobPostings = async (req: CustomRequest, res: Response, next: NextFunction) => {
   try {
       const jobPostings = await JobPosting.findAll({
@@ -79,26 +83,28 @@ export const getAllJobPostings = async (req: CustomRequest, res: Response, next:
               {
                   model: Employer,
                   as: 'employer',
-                  attributes: ['employer_id'], // We only need the ID, user details are nested
+                  attributes: ['employer_id', 'user_id'], // Get IDs for linking
                   include: [{
                       model: User,
                       as: 'user',
-                      attributes: ['user_id', 'fullname', 'profile_picture'] // Get user details
+                      attributes: ['user_id', 'fullname', 'profile_picture'] // Get public user details
                   }],
               },
           ],
-          order: [['createdAt', 'DESC']]
+          // --- THIS IS THE CORRECTED ORDER CLAUSE ---
+          // Explicitly order by the 'createdAt' column of the 'JobPosting' model to resolve ambiguity
+          order: [[JobPosting, 'createdAt', 'DESC']]
+          // --- END CORRECTION ---
       });
-
-      // The raw jobPostings objects can be sent directly. 
-      // Sequelize's .toJSON() method (called by res.json) will handle serialization.
-      // The frontend will receive all the new fields.
+      
+      // No need for mapping, res.json() will serialize the Sequelize instances correctly
       res.status(200).json(jobPostings);
   } catch (error) {
       console.error('Error fetching job postings:', error);
       next(error);
   }
 };
+
 
 /**
 * @description Fetch a single job posting by ID with the new detailed structure.
