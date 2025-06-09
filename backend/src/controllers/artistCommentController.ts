@@ -55,9 +55,9 @@ export const createArtistComment = async (req: CustomRequest, res: Response): Pr
         const createdCommentWithDetails = await ArtistComment.findByPk(newCommentInstance.comment_id, {
             include: [{
                 model: User,
-                as: 'commenterArtist', // This alias must match your associations.ts
+                as: 'commenterArtist', // This gets the User who commented
                 attributes: ['user_id', 'fullname', 'user_type'],
-                include: [
+                include: [ // This gets their profile picture from their specific profile
                     { model: Artist, as: 'artistProfile', attributes: ['profile_picture'], required: false },
                     { model: Employer, as: 'employerProfile', attributes: ['profile_picture'], required: false }
                 ]

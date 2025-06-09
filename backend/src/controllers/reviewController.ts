@@ -12,34 +12,28 @@ export const submitReview = async (req: CustomRequest, res: Response): Promise<v
         const loggedInUserId = req.user?.id;
         const { reviewedUserId, overallRating, specificAnswers } = req.body;
 
-        // --- Basic Validation ---
         if (!loggedInUserId) {
             res.status(401).json({ message: 'Unauthorized: Missing reviewer ID.' });
             return;
         }
         if (reviewedUserId === undefined || overallRating === undefined) {
-            res.status(400).json({ message: 'Missing required fields: reviewedUserId, overallRating.' });
+            res.status(400).json({ message: 'Missing required fields.' });
             return;
         }
         const numericReviewedUserId = parseInt(reviewedUserId, 10);
         if (isNaN(numericReviewedUserId) || loggedInUserId === numericReviewedUserId) {
-            res.status(400).json({ message: 'Invalid request: Cannot review yourself.' });
+            res.status(400).json({ message: 'Invalid request.' });
             return;
         }
         
-        // --- Prevent duplicate reviews ---
         const existingReview = await Review.findOne({
-            where: {
-                reviewer_user_id: loggedInUserId,
-                reviewed_user_id: numericReviewedUserId
-            }
+            where: { reviewer_user_id: loggedInUserId, reviewed_user_id: numericReviewedUserId }
         });
         if (existingReview) {
             res.status(409).json({ message: "You have already submitted a review for this user." });
             return;
         }
 
-        // Create the new review
         const newReviewInstance = await Review.create({
             reviewer_user_id: loggedInUserId,
             reviewed_user_id: numericReviewedUserId,
@@ -47,14 +41,11 @@ export const submitReview = async (req: CustomRequest, res: Response): Promise<v
             specific_answers: specificAnswers || null,
         });
 
-        // --- THIS IS THE FIX ---
-        // After creating, immediately fetch the new review again, this time with its associations.
-        // This ensures the frontend gets the reviewer's name and picture for an instant update.
         const createdReviewWithDetails = await Review.findByPk(newReviewInstance.review_id, {
             include: [
                 {
                     model: User,
-                    as: 'reviewer', // This alias must match your associations.ts
+                    as: 'reviewer',
                     attributes: ['user_id', 'fullname', 'user_type'],
                     include: [
                         { model: Artist, as: 'artistProfile', attributes: ['profile_picture'], required: false },
@@ -63,22 +54,21 @@ export const submitReview = async (req: CustomRequest, res: Response): Promise<v
                 }
             ]
         });
-        // --- END FIX ---
 
-        // Now, send the complete, detailed review object back to the frontend
         res.status(201).json({ message: 'Review submitted successfully!', review: createdReviewWithDetails });
 
     } catch (error: any) {
-         console.error("❌ Error submitting review:", error);
          if (error instanceof UniqueConstraintError) {
             res.status(409).json({ message: 'You have already submitted a review for this user.' });
          } else if (error instanceof ValidationError) {
              res.status(400).json({ message: 'Validation failed.', errors: error.errors?.map((e: any) => e.message) });
          } else {
+             console.error("❌ Error submitting review:", error);
              res.status(500).json({ message: 'Failed to submit review.', error: error.message });
          }
     }
 };
+
 
 
 // --- Your other functions are already correct and don't need changes ---
