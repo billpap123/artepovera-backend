@@ -1,14 +1,13 @@
-// jobPosting.controller.ts
+// src/controllers/jobPosting.controller.ts
 import { Response, NextFunction } from 'express';
-import { CustomRequest } from '../middleware/authMiddleware'; // ✅ Fixed Import
+import { CustomRequest } from '../middleware/authMiddleware';
 import JobPosting from '../models/JobPosting';
 import User from '../models/User';
 import Employer from '../models/Employer';
 import Notification from '../models/Notification';
 import JobApplication from '../models/JobApplication';
-import sequelizeInstance from '../config/db'; // <<< ADD THIS IMPORT
+import { UniqueConstraintError, Sequelize } from 'sequelize'; // The main Sequelize object
 
-import { UniqueConstraintError, Sequelize } from 'sequelize'; // Keep Sequelize if needed for other fn()
 /**
  * @description Creates a new, detailed job posting based on the new schema.
  * @route POST /api/job-postings
@@ -70,28 +69,25 @@ export const createJobPosting = async (req: CustomRequest, res: Response, next: 
   }
 };
 
-/**
-* @description Fetches all job postings with the new detailed structure.
-* @route GET /api/job-postings
-*/
 export const getAllJobPostings = async (req: CustomRequest, res: Response, next: NextFunction) => {
   try {
       const jobPostings = await JobPosting.findAll({
           include: [
               {
                   model: Employer,
-                  as: 'employer', // This alias must match your JobPosting -> Employer association
-                  // --- MODIFIED: Select profile_picture from Employer directly ---
+                  as: 'employer',
                   attributes: ['employer_id', 'user_id', 'profile_picture'],
                   include: [{
                       model: User,
-                      as: 'user', // This alias must match your Employer -> User association
-                      // We only need the user's name from here now
+                      as: 'user',
                       attributes: ['user_id', 'fullname']
                   }],
               },
           ],
-          order: [[JobPosting, 'createdAt', 'DESC']]
+          // --- THIS IS THE CORRECTED ORDER CLAUSE ---
+          // Use the imported Sequelize object to call .col()
+          order: [[Sequelize.col('JobPosting.createdAt'), 'DESC']]
+          // --- END CORRECTION ---
       });
       
       res.status(200).json(jobPostings);
@@ -100,6 +96,7 @@ export const getAllJobPostings = async (req: CustomRequest, res: Response, next:
       next(error);
   }
 };
+
 
 
 
