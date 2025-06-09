@@ -2,16 +2,16 @@
 import { Model, DataTypes, Optional } from 'sequelize';
 import sequelizeInstance from '../config/db';
 import User from './User';
-// Chat model is no longer imported or used
+// The Chat model is no longer needed or imported here
 
-// This interface defines the direct columns of your table
+// This interface now has NO reference to chat_id
 export interface ReviewAttributes {
   review_id: number;
   reviewer_user_id: number;
   reviewed_user_id: number;
   overall_rating: number;
   specific_answers?: object | null;
-  // createdAt and updatedAt are managed by Sequelize, not defined here
+  // createdAt and updatedAt are managed by Sequelize, not part of this interface
 }
 
 // Creation attributes
@@ -24,14 +24,14 @@ class Review extends Model<ReviewAttributes, ReviewCreationAttributes> implement
   public overall_rating!: number;
   public specific_answers!: object | null;
 
-  // Standard Sequelize instance properties
+  // Standard Sequelize instance properties for timestamps
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
 
   // Associated models
   public readonly reviewer?: User;
   public readonly reviewed?: User;
-  // The 'chat' association has been removed
+  // The 'chat' association has been completely removed
 }
 
 Review.init({
@@ -40,7 +40,7 @@ Review.init({
     autoIncrement: true,
     primaryKey: true,
   },
-  // --- The chat_id attribute definition is completely removed ---
+  // --- The chat_id attribute definition is completely removed from init() ---
   reviewer_user_id: {
     type: DataTypes.INTEGER.UNSIGNED,
     allowNull: false,

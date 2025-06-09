@@ -1,24 +1,16 @@
 // src/controllers/review.controller.ts
 import { Request, Response } from 'express';
 import Review from '../models/Review';
-// Chat model is no longer needed for core review submission
-// import Chat from '../models/Chat'; 
-import User from '../models/User'; // Still needed to optionally check if reviewedUser exists
+import User from '../models/User';
 import { CustomRequest } from '../middleware/authMiddleware';
-import { UniqueConstraintError, ValidationError } from 'sequelize'; // For specific error handling
-import  Artist  from '../models/Artist';
-import  Employer  from '../models/Employer';
+import { UniqueConstraintError, ValidationError, Sequelize } from 'sequelize'; // <<< IMPORT Sequelize
+import Artist  from '../models/Artist';
+import Employer  from '../models/Employer';
 
-// Artist and Employer imports are no longer needed here as they were for chat participant validation
-
-// Make sure your sequelize instance is correctly imported for use in getAverageRatingForUser
-import sequelizeInstance from '../config/db'; // Assuming 'sequelizeInstance' is the name of your exported sequelize connection
 
 export const submitReview = async (req: CustomRequest, res: Response): Promise<void> => {
     try {
-        const loggedInUserId = req.user?.id; // This is the reviewer (User.user_id)
-        
-        // `chatId` is no longer expected from req.body for creating a review
+        const loggedInUserId = req.user?.id;
         const { reviewedUserId, overallRating, specificAnswers } = req.body;
 
         // --- Basic Validation ---
@@ -26,18 +18,15 @@ export const submitReview = async (req: CustomRequest, res: Response): Promise<v
             res.status(401).json({ message: 'Unauthorized: Missing reviewer ID.' });
             return;
         }
-        // `chatId` removed from this check
         if (reviewedUserId === undefined || overallRating === undefined) {
             res.status(400).json({ message: 'Missing required fields: reviewedUserId, overallRating.' });
             return;
         }
-
         const numericReviewedUserId = parseInt(reviewedUserId, 10);
         if (isNaN(numericReviewedUserId)) {
             res.status(400).json({ message: "Reviewed User ID must be a valid number." });
             return;
         }
-
         if (typeof overallRating !== 'number' || overallRating < 1 || overallRating > 5) {
             res.status(400).json({ message: 'Overall rating must be a number between 1 and 5.' });
             return;
@@ -46,23 +35,12 @@ export const submitReview = async (req: CustomRequest, res: Response): Promise<v
             res.status(400).json({ message: 'Users cannot review themselves.' });
             return;
         }
-        
-        // Optional: Check if the user being reviewed actually exists
         const userToReview = await User.findByPk(numericReviewedUserId);
         if (!userToReview) {
             res.status(404).json({ message: 'User to be reviewed not found.' });
             return;
         }
-        // --- End Validation ---
-
-        // --- CHAT-SPECIFIC LOGIC REMOVED ---
-        // All chat parsing, fetching, and participant validation logic is removed.
-        // --- END CHAT-SPECIFIC LOGIC REMOVED ---
-
-        // Prevent duplicate reviews: a reviewer can only review a specific user once.
-        // This relies on the unique constraint `uq_reviewer_reviewed_once` (reviewer_user_id, reviewed_user_id)
-        // which you should have added to your database table.
-        // The database will enforce this. We can also do an explicit check for a cleaner message:
+        
         const existingReview = await Review.findOne({
             where: {
                 reviewer_user_id: loggedInUserId,
@@ -71,34 +49,35 @@ export const submitReview = async (req: CustomRequest, res: Response): Promise<v
         });
 
         if (existingReview) {
-            // This message will be shown if the explicit check finds a review.
-            // If the explicit check is removed, the catch block for UniqueConstraintError will handle it.
             res.status(409).json({ message: "You have already submitted a review for this user." });
             return;
         }
 
-        const newReview = await Review.create({
-            // chat_id is no longer provided here; it will be NULL by default in the DB
-            // if the column is nullable and has no other default value.
+        const newReviewInstance = await Review.create({
             reviewer_user_id: loggedInUserId,
             reviewed_user_id: numericReviewedUserId,
             overall_rating: overallRating,
-            specific_answers: specificAnswers || null, // Ensure specificAnswers can be null if not provided
+            specific_answers: specificAnswers || null,
         });
 
-        // --- CHAT STATUS UPDATE LOGIC REMOVED ---
-        // No more chat status updates.
-        // --- END CHAT STATUS UPDATE LOGIC REMOVED ---
+        // Format the response to include correctly named timestamps
+        const responseReview = {
+            review_id: newReviewInstance.review_id,
+            reviewer_user_id: newReviewInstance.reviewer_user_id,
+            reviewed_user_id: newReviewInstance.reviewed_user_id,
+            overall_rating: newReviewInstance.overall_rating,
+            specific_answers: newReviewInstance.specific_answers,
+            created_at: newReviewInstance.createdAt ? newReviewInstance.createdAt.toISOString() : null,
+            updated_at: newReviewInstance.updatedAt ? newReviewInstance.updatedAt.toISOString() : null,
+        };
 
-        res.status(201).json({ message: 'Review submitted successfully!', review: newReview });
+        res.status(201).json({ message: 'Review submitted successfully!', review: responseReview });
 
     } catch (error: any) {
          console.error("❌ Error submitting review:", error);
          if (error instanceof UniqueConstraintError) {
-            // This will be triggered by the DB unique constraint `uq_reviewer_reviewed_once`
-            // if the explicit findOne check above is removed or somehow bypassed.
             res.status(409).json({ message: 'You have already submitted a review for this user (constraint error).' });
-         } else if (error instanceof ValidationError) { // Sequelize validation errors
+         } else if (error instanceof ValidationError) {
              res.status(400).json({ message: 'Validation failed.', errors: error.errors?.map((e: any) => e.message) });
          } else {
              res.status(500).json({ message: 'Failed to submit review.', error: error.message });
@@ -106,16 +85,11 @@ export const submitReview = async (req: CustomRequest, res: Response): Promise<v
     }
 };
 
-// --- Define interface for the SUM/COUNT aggregation result (keep as is) ---
 interface SumRatingResult {
   ratingSum: number | string | null;
   reviewCount: number | string;
 }
 
-
-/* -------------------------------------------------------------------------- */
-/* GET AVERAGE RATING FOR A USER (Using SUM / COUNT)                          */
-/* -------------------------------------------------------------------------- */
 export const getAverageRatingForUser = async (req: Request, res: Response): Promise<void> => {
     try {
         const userId = parseInt(req.params.userId, 10);
@@ -126,8 +100,9 @@ export const getAverageRatingForUser = async (req: Request, res: Response): Prom
         const result = await Review.findOne({
             where: { reviewed_user_id: userId },
             attributes: [
-                [sequelizeInstance.fn('SUM', sequelizeInstance.col('overall_rating')), 'ratingSum'],
-                [sequelizeInstance.fn('COUNT', sequelizeInstance.col('review_id')), 'reviewCount']
+                // --- USE 'Sequelize' (capital S) from the import ---
+                [Sequelize.fn('SUM', Sequelize.col('overall_rating')), 'ratingSum'],
+                [Sequelize.fn('COUNT', Sequelize.col('review_id')), 'reviewCount']
             ],
             raw: true
         }) as unknown as SumRatingResult | null;
@@ -135,17 +110,12 @@ export const getAverageRatingForUser = async (req: Request, res: Response): Prom
         const reviewCount = result?.reviewCount ? parseInt(String(result.reviewCount), 10) : 0;
         let averageRating: number | null = null;
   
-        if (reviewCount > 0 && result?.ratingSum != null) { // Using ratingSum here is correct
-            const ratingSumValue = parseFloat(String(result.ratingSum)); // Using ratingSum here is correct
+        if (reviewCount > 0 && result?.ratingSum != null) {
+            const ratingSumValue = parseFloat(String(result.ratingSum));
             if (!isNaN(ratingSumValue)) {
                  averageRating = parseFloat((ratingSumValue / reviewCount).toFixed(1));
-            } else {
-                 console.error(`Could not parse ratingSum ('${result.ratingSum}') to number for user ${userId}`);
             }
         }
-  
-        // CORRECTED CONSOLE.LOG LINE:
-        console.log(`[Rating Avg Calc] User: ${userId}, Sum: ${result?.ratingSum}, Count: ${reviewCount}, Average: ${averageRating}`);
         
         res.status(200).json({ averageRating: averageRating, reviewCount: reviewCount });
   
@@ -153,18 +123,16 @@ export const getAverageRatingForUser = async (req: Request, res: Response): Prom
         console.error(`Error fetching average rating for user ${req.params.userId}:`, error);
         res.status(500).json({ message: 'Failed to fetch average rating.', error: error.message });
     }
-  };
+};
   
-// In reviewController.ts
-export const checkExistingReview = async (req: CustomRequest, res: Response): Promise<void> => { // Explicit return type
+export const checkExistingReview = async (req: CustomRequest, res: Response): Promise<void> => {
     try {
         const reviewerIdString = req.query.reviewerId as string;
         const reviewedUserIdString = req.query.reviewedUserId as string;
 
-        // More robust parsing and validation
         if (!reviewerIdString || !reviewedUserIdString) {
             res.status(400).json({ message: "Missing reviewerId or reviewedUserId query parameters." });
-            return; // Exit after sending response
+            return;
         }
 
         const reviewerId = parseInt(reviewerIdString, 10);
@@ -172,7 +140,7 @@ export const checkExistingReview = async (req: CustomRequest, res: Response): Pr
 
         if (isNaN(reviewerId) || isNaN(reviewedUserId)) {
             res.status(400).json({ message: "Invalid user IDs. They must be numbers." });
-            return; // Exit after sending response
+            return;
         }
 
         const review = await Review.findOne({
@@ -180,23 +148,13 @@ export const checkExistingReview = async (req: CustomRequest, res: Response): Pr
         });
 
         res.status(200).json({ hasReviewed: !!review });
-        // No explicit return needed here; sending response ends the handler.
 
-    } catch (error: any) { // Added 'any' for error type, or be more specific
+    } catch (error: any) {
         console.error("Error checking existing review:", error);
         res.status(500).json({ message: "Failed to check review status.", error: error.message });
     }
 };
 
-/* -------------------------------------------------------------------------- */
-/* GET REVIEWS RECEIVED BY A USER                     */
-/* -------------------------------------------------------------------------- */
-// No major changes to its core logic. 
-// The `chat_id` field in returned reviews will now be `null` for reviews submitted without chat context.
-
-/* -------------------------------------------------------------------------- */
-/* GET REVIEWS RECEIVED BY A USER                                             */
-/* -------------------------------------------------------------------------- */
 export const getReviewsForUser = async (req: Request, res: Response): Promise<void> => {
     try {
          const userId = parseInt(req.params.userId, 10);
@@ -218,9 +176,8 @@ export const getReviewsForUser = async (req: Request, res: Response): Promise<vo
                     ]
                 }
             ],
-            // --- THIS IS THE CORRECTED LINE ---
-            order: [[sequelizeInstance.col('Review.created_at'), 'DESC']]
-            // --- END CORRECTION ---
+            // --- USE 'Sequelize' (capital S) from the import ---
+            order: [[Sequelize.col('Review.created_at'), 'DESC']]
          });
   
          const formattedReviews = reviewsInstances.map(reviewInstance => {
@@ -245,14 +202,13 @@ export const getReviewsForUser = async (req: Request, res: Response): Promise<vo
              const plainReviewBase = reviewInstance.get({ plain: true });
   
              return {
-                review_id: plainReviewBase.review_id,
-                // --- REMOVE THIS LINE ---
-                // chat_id: plainReviewBase.chat_id, 
-                overall_rating: plainReviewBase.overall_rating,
-                specific_answers: plainReviewBase.specific_answers,
-                created_at: reviewInstance.createdAt ? reviewInstance.createdAt.toISOString() : null,
-                reviewer: formattedReviewerData
-            };
+                 review_id: plainReviewBase.review_id,
+                 overall_rating: plainReviewBase.overall_rating,
+                 specific_answers: plainReviewBase.specific_answers,
+                 created_at: reviewInstance.createdAt ? reviewInstance.createdAt.toISOString() : null,
+                 updated_at: reviewInstance.updatedAt ? reviewInstance.updatedAt.toISOString() : null,
+                 reviewer: formattedReviewerData
+             };
          });
   
          res.status(200).json({ reviews: formattedReviews });

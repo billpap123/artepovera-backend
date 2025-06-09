@@ -59,9 +59,7 @@ Employer.hasMany(JobPosting, {
   onDelete: 'CASCADE' // Deletes job postings if an employer is deleted
 });
 
-// 7) Review <-> Chat & Review <-> User
-Review.belongsTo(Chat, { foreignKey: 'chat_id', as: 'chat' });
-Chat.hasMany(Review, { foreignKey: 'chat_id', as: 'reviews' });
+
 
 Review.belongsTo(User, { foreignKey: 'reviewer_user_id', as: 'reviewer' });
 User.hasMany(Review, {
