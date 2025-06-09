@@ -23,36 +23,24 @@ export const submitReview = async (req: CustomRequest, res: Response): Promise<v
             return;
         }
         const numericReviewedUserId = parseInt(reviewedUserId, 10);
-        if (isNaN(numericReviewedUserId)) {
-            res.status(400).json({ message: "Reviewed User ID must be a valid number." });
-            return;
-        }
-        if (typeof overallRating !== 'number' || overallRating < 1 || overallRating > 5) {
-            res.status(400).json({ message: 'Overall rating must be a number between 1 and 5.' });
-            return;
-        }
-        if (loggedInUserId === numericReviewedUserId) {
-            res.status(400).json({ message: 'Users cannot review themselves.' });
-            return;
-        }
-        const userToReview = await User.findByPk(numericReviewedUserId);
-        if (!userToReview) {
-            res.status(404).json({ message: 'User to be reviewed not found.' });
+        if (isNaN(numericReviewedUserId) || loggedInUserId === numericReviewedUserId) {
+            res.status(400).json({ message: 'Invalid request: Cannot review yourself.' });
             return;
         }
         
+        // --- Prevent duplicate reviews ---
         const existingReview = await Review.findOne({
             where: {
                 reviewer_user_id: loggedInUserId,
                 reviewed_user_id: numericReviewedUserId
             }
         });
-
         if (existingReview) {
             res.status(409).json({ message: "You have already submitted a review for this user." });
             return;
         }
 
+        // Create the new review
         const newReviewInstance = await Review.create({
             reviewer_user_id: loggedInUserId,
             reviewed_user_id: numericReviewedUserId,
@@ -60,18 +48,25 @@ export const submitReview = async (req: CustomRequest, res: Response): Promise<v
             specific_answers: specificAnswers || null,
         });
 
-        // Format the response to include correctly named timestamps
-        const responseReview = {
-            review_id: newReviewInstance.review_id,
-            reviewer_user_id: newReviewInstance.reviewer_user_id,
-            reviewed_user_id: newReviewInstance.reviewed_user_id,
-            overall_rating: newReviewInstance.overall_rating,
-            specific_answers: newReviewInstance.specific_answers,
-            created_at: newReviewInstance.createdAt ? newReviewInstance.createdAt.toISOString() : null,
-            updated_at: newReviewInstance.updatedAt ? newReviewInstance.updatedAt.toISOString() : null,
-        };
+        // --- THIS IS THE FIX ---
+        // After creating, immediately fetch the new review again, this time with its associations
+        // so the frontend receives the complete data for an instant update.
+        const createdReviewWithDetails = await Review.findByPk(newReviewInstance.review_id, {
+            include: [
+                {
+                    model: User,
+                    as: 'reviewer', // This alias must match your associations.ts
+                    attributes: ['user_id', 'fullname', 'user_type'],
+                    include: [
+                        { model: Artist, as: 'artistProfile', attributes: ['profile_picture'], required: false },
+                        { model: Employer, as: 'employerProfile', attributes: ['profile_picture'], required: false }
+                    ]
+                }
+            ]
+        });
+        // --- END FIX ---
 
-        res.status(201).json({ message: 'Review submitted successfully!', review: responseReview });
+        res.status(201).json({ message: 'Review submitted successfully!', review: createdReviewWithDetails });
 
     } catch (error: any) {
          console.error("❌ Error submitting review:", error);
@@ -84,6 +79,7 @@ export const submitReview = async (req: CustomRequest, res: Response): Promise<v
          }
     }
 };
+
 
 interface SumRatingResult {
   ratingSum: number | string | null;
