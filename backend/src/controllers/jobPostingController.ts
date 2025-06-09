@@ -6,6 +6,8 @@ import User from '../models/User';
 import Employer from '../models/Employer';
 import Notification from '../models/Notification';
 import JobApplication from '../models/JobApplication';
+import sequelizeInstance from '../config/db'; // <<< ADD THIS IMPORT
+
 import { UniqueConstraintError, Sequelize } from 'sequelize'; // Keep Sequelize if needed for other fn()
 /**
  * @description Creates a new, detailed job posting based on the new schema.
@@ -72,10 +74,6 @@ export const createJobPosting = async (req: CustomRequest, res: Response, next: 
 * @description Fetches all job postings with the new detailed structure.
 * @route GET /api/job-postings
 */
-/**
-* @description Fetches all job postings with the new detailed structure.
-* @route GET /api/job-postings
-*/
 export const getAllJobPostings = async (req: CustomRequest, res: Response, next: NextFunction) => {
   try {
       const jobPostings = await JobPosting.findAll({
@@ -91,9 +89,8 @@ export const getAllJobPostings = async (req: CustomRequest, res: Response, next:
                   }],
               },
           ],
-          // --- THIS IS THE CORRECTED ORDER CLAUSE ---
-          // Use the Model name to specify which table's column to use
-          order: [[JobPosting, 'createdAt', 'DESC']]
+          // This now works because sequelizeInstance is imported
+          order: [[sequelizeInstance.col('JobPosting.createdAt'), 'DESC']]
       });
       
       res.status(200).json(jobPostings);
