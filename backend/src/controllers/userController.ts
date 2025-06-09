@@ -40,39 +40,33 @@ export const toggleLike = async (req: CustomRequest, res: Response): Promise<voi
         });
 
         if (existingLike) {
-            // User is "unliking"
             await existingLike.destroy();
             res.status(200).json({ message: 'Like removed', liked: false });
-            return; // Exit function
+            return;
         }
 
-        // Create the new like
         await Like.create({ user_id: loggedInUserId, liked_user_id: likedUserId });
 
-        // Fetch user details for notifications
         const loggedInUser = await User.findByPk(loggedInUserId, { attributes: ['fullname'] });
         const otherUser = await User.findByPk(likedUserId, { attributes: ['fullname'] });
 
         if (!loggedInUser || !otherUser) {
-            console.warn(`Could not find one or both users (${loggedInUserId}, ${likedUserId}) for notification/chat check.`);
+            console.warn(`Could not find one or both users (${loggedInUserId}, ${likedUserId})`);
             res.status(201).json({ message: 'Like added', liked: true });
             return;
         }
 
-        // Send the initial "like" notification to the other user
         await Notification.create({
             user_id: likedUserId,
             message: `${loggedInUser.fullname || 'Someone'} liked your profile.`,
             sender_id: loggedInUserId,
         });
 
-        // Now, check for a mutual like to create a chat
         const mutualLike = await Like.findOne({
             where: { user_id: likedUserId, liked_user_id: loggedInUserId },
         });
 
         if (!mutualLike) {
-            // No mutual like yet, so just confirm the like was added and finish
             res.status(201).json({ message: 'Like added', liked: true });
             return;
         }
@@ -80,18 +74,17 @@ export const toggleLike = async (req: CustomRequest, res: Response): Promise<voi
         // --- NEW CHAT CREATION LOGIC FOR ANY USER TYPE ---
         console.log(`Mutual like! Finding/creating chat for users ${loggedInUserId} and ${likedUserId}`);
         
-        // To prevent duplicate chats (e.g., between user 1-5 and 5-1), we always store the smaller ID as user1_id.
+        // To prevent duplicate chats, always store the smaller ID as user1_id.
         const user1 = Math.min(loggedInUserId, likedUserId);
         const user2 = Math.max(loggedInUserId, likedUserId);
 
-        // `findOrCreate` will now look for the specific pair (e.g., 1 and 5) and never (5 and 1).
-        // This enforces uniqueness at the application level.
+        // `findOrCreate` will now look for the specific pair using the correct column names.
         const [chat] = await Chat.findOrCreate({
             where: {
                 user1_id: user1,
                 user2_id: user2
             },
-            defaults: { // This data is used only if a new chat is created
+            defaults: {
                 user1_id: user1,
                 user2_id: user2
             }

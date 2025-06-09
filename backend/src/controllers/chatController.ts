@@ -1,7 +1,7 @@
 // src/controllers/chatController.ts
 import { Request, Response } from 'express';
 import { Op } from 'sequelize';
-import Chat from '../models/Chat';
+import Chat from '../models/Chat'; // Your NEW Chat model
 import Message from '../models/Message';
 import User from '../models/User';
 import Artist from '../models/Artist';
@@ -10,6 +10,9 @@ import { CustomRequest } from '../middleware/authMiddleware';
 
 /**
  * @description Creates a chat between the logged-in user and a specified receiver.
+ * It will find an existing chat or create a new one if it doesn't exist.
+ * @route POST /api/chats
+ * @body { receiverId: number }
  */
 export const createChat = async (req: CustomRequest, res: Response): Promise<void> => {
     const senderId = req.user?.id;
@@ -21,15 +24,17 @@ export const createChat = async (req: CustomRequest, res: Response): Promise<voi
     }
 
     try {
+        // To find the chat regardless of who is user1 or user2, we search for both combinations.
         const user1 = Math.min(senderId, receiverId);
         const user2 = Math.max(senderId, receiverId);
-
+        
         const [chat] = await Chat.findOrCreate({
             where: { user1_id: user1, user2_id: user2 },
             defaults: { user1_id: user1, user2_id: user2 }
         });
 
         res.status(200).json({ message: 'Chat found or created successfully.', chat });
+
     } catch (error) {
         console.error('❌ Error creating or finding chat:', error);
         res.status(500).json({ message: 'Failed to create chat.' });
@@ -38,6 +43,8 @@ export const createChat = async (req: CustomRequest, res: Response): Promise<voi
 
 /**
  * @description Sends a message from the logged-in user to a specific chat.
+ * @route POST /api/chats/send
+ * @body { chat_id: number, message: string }
  */
 export const sendMessage = async (req: CustomRequest, res: Response): Promise<void> => {
     const senderId = req.user?.id;
@@ -55,11 +62,13 @@ export const sendMessage = async (req: CustomRequest, res: Response): Promise<vo
             return;
         }
 
+        // Verify the sender is a participant in this chat
         if (chat.user1_id !== senderId && chat.user2_id !== senderId) {
             res.status(403).json({ message: 'Forbidden: You are not a participant in this chat.' });
             return;
         }
         
+        // Determine the receiver's ID
         const receiverId = (chat.user1_id === senderId) ? chat.user2_id : chat.user1_id;
 
         const newMessage = await Message.create({
@@ -69,7 +78,7 @@ export const sendMessage = async (req: CustomRequest, res: Response): Promise<vo
             message: message.trim(),
         });
 
-        // --- FIXED: Use .save() to update the timestamp ---
+        // Use .save() to update the 'updatedAt' timestamp, bringing the chat to the top of lists.
         await chat.save();
 
         res.status(201).json({ message: 'Message sent successfully', data: newMessage });
@@ -81,6 +90,7 @@ export const sendMessage = async (req: CustomRequest, res: Response): Promise<vo
 
 /**
  * @description Fetches all chats for the logged-in user.
+ * @route GET /api/chats/my-chats
  */
 export const fetchUserChats = async (req: CustomRequest, res: Response): Promise<void> => {
     const loggedInUserId = req.user?.id;
@@ -91,8 +101,12 @@ export const fetchUserChats = async (req: CustomRequest, res: Response): Promise
 
     try {
         const chats = await Chat.findAll({
-            where: { [Op.or]: [{ user1_id: loggedInUserId }, { user2_id: loggedInUserId }] },
-            // --- FIXED: Nested include to get profile pictures correctly ---
+            where: {
+                [Op.or]: [
+                    { user1_id: loggedInUserId },
+                    { user2_id: loggedInUserId }
+                ]
+            },
             include: [
                 {
                     model: User,
@@ -121,7 +135,6 @@ export const fetchUserChats = async (req: CustomRequest, res: Response): Promise
             let otherUserProfilePic = null;
 
             if (otherUserInstance) {
-                // Get picture from the correct nested profile
                 if (otherUserInstance.user_type === 'Artist') {
                     otherUserProfilePic = otherUserInstance.artistProfile?.profile_picture;
                 } else if (otherUserInstance.user_type === 'Employer') {
@@ -149,6 +162,7 @@ export const fetchUserChats = async (req: CustomRequest, res: Response): Promise
 
 /**
  * @description Fetches the message history for a specific chat.
+ * @route GET /api/chats/:chat_id/messages
  */
 export const getChatHistory = async (req: CustomRequest, res: Response): Promise<void> => {
     const { chat_id } = req.params;

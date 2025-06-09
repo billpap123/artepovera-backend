@@ -75,19 +75,20 @@ export const getAllJobPostings = async (req: CustomRequest, res: Response, next:
           include: [
               {
                   model: Employer,
-                  as: 'employer',
+                  as: 'employer', // This alias must match your JobPosting -> Employer association
+                  // --- THIS IS THE FIX ---
+                  // Select profile_picture directly from the Employer model
                   attributes: ['employer_id', 'user_id', 'profile_picture'],
                   include: [{
                       model: User,
-                      as: 'user',
+                      as: 'user', // This alias must match your Employer -> User association
+                      // We only need the user's name from this nested model
                       attributes: ['user_id', 'fullname']
                   }],
               },
           ],
-          // --- THIS IS THE CORRECTED ORDER CLAUSE ---
-          // Use the imported Sequelize object to call .col()
-          order: [[Sequelize.col('JobPosting.created_at'), 'DESC']] // Use the snake_case database column name
-          // --- END CORRECTION ---
+          // This order clause is now also correct
+          order: [[Sequelize.col('JobPosting.createdAt'), 'DESC']]
       });
       
       res.status(200).json(jobPostings);
