@@ -1,7 +1,7 @@
 // src/models/Chat.ts
 import { Model, DataTypes, Optional } from 'sequelize';
 import sequelizeInstance from '../config/db';
-import User from './User'; // For association typing
+import User from './User';
 
 // This interface defines all the attributes of a Chat instance
 export interface ChatAttributes {
