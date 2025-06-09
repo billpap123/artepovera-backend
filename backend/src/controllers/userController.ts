@@ -111,17 +111,34 @@ export const toggleLike = async (req: CustomRequest, res: Response): Promise<voi
 
                 if (chat) {
                     console.log(`Chat found or created with ID: ${chat.chat_id}`);
-                    // Notify both users about the match/chat
-                    await Notification.create({
-                        user_id: loggedInUserId,
-                        message: `You matched with ${otherUserRow.fullname || 'user'}. Start chatting.`,
-                        sender_id: likedUserId,
-                    });
+                    
+                    // --- UPDATED NOTIFICATION LOGIC ---
+                    
+                    // Define your frontend URL. Best practice is to use an environment variable.
+                    const frontendUrl = process.env.FRONTEND_URL || 'https://artepovera2.vercel.app';
+                    
+                    // Create a dynamic link to your chat page. 
+                    // You might want to pass the specific chatId to automatically open the conversation.
+                    const chatLink = `${frontendUrl}/chat?open=${chat.chat_id}`;
+
+                    const messageForLikedUser = `You have a new match with ${loggedInUser.fullname || 'a user'}! <a href="${chatLink}" target="_blank" rel="noopener noreferrer">Start Chatting</a>`;
+                    const messageForLoggedInUser = `You matched with ${otherUserRow.fullname || 'a user'}! <a href="${chatLink}" target="_blank" rel="noopener noreferrer">Start Chatting</a>`;
+
+                    // Notify the user who was liked
                     await Notification.create({
                         user_id: likedUserId,
-                        message: `You matched with ${loggedInUser.fullname || 'user'}. Start chatting.`,
+                        message: messageForLikedUser,
                         sender_id: loggedInUserId,
                     });
+                    
+                    // Notify the user who did the liking
+                    await Notification.create({
+                        user_id: loggedInUserId,
+                        message: messageForLoggedInUser,
+                        sender_id: likedUserId,
+                    });
+                    
+                    // --- END UPDATED NOTIFICATION LOGIC ---
                 }
             } else {
                 console.log('Could not find corresponding Artist or Employer profile for one or both users.');
