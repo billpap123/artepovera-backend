@@ -47,7 +47,8 @@ export const submitReview = async (req: CustomRequest, res: Response): Promise<v
             specific_answers: specificAnswers || null,
         });
 
-        // --- FIX: Re-fetch the review with its associations for the response ---
+        // --- THIS IS THE FIX ---
+        // After creating, immediately fetch the new review again, this time with its associations.
         // This ensures the frontend gets the reviewer's name and picture for an instant update.
         const createdReviewWithDetails = await Review.findByPk(newReviewInstance.review_id, {
             include: [
@@ -62,7 +63,9 @@ export const submitReview = async (req: CustomRequest, res: Response): Promise<v
                 }
             ]
         });
+        // --- END FIX ---
 
+        // Now, send the complete, detailed review object back to the frontend
         res.status(201).json({ message: 'Review submitted successfully!', review: createdReviewWithDetails });
 
     } catch (error: any) {
@@ -77,10 +80,13 @@ export const submitReview = async (req: CustomRequest, res: Response): Promise<v
     }
 };
 
+// --- Your other functions are already correct and don't need changes ---
+
 interface SumRatingResult {
   ratingSum: number | string | null;
   reviewCount: number | string;
 }
+
 
 export const getAverageRatingForUser = async (req: Request, res: Response): Promise<void> => {
     try {
