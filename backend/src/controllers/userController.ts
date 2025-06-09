@@ -114,12 +114,12 @@ export const toggleLike = async (req: CustomRequest, res: Response): Promise<voi
                     // Notify both users about the match/chat
                     await Notification.create({
                         user_id: loggedInUserId,
-                        message: `You matched with ${otherUserRow.fullname || 'user'}! Start chatting.`,
+                        message: `You matched with ${otherUserRow.fullname || 'user'}. Start chatting.`,
                         sender_id: likedUserId,
                     });
                     await Notification.create({
                         user_id: likedUserId,
-                        message: `You matched with ${loggedInUser.fullname || 'user'}! Start chatting.`,
+                        message: `You matched with ${loggedInUser.fullname || 'user'}. Start chatting.`,
                         sender_id: loggedInUserId,
                     });
                 }
