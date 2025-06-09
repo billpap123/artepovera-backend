@@ -2,11 +2,10 @@
 import { Request, Response } from 'express';
 import Review from '../models/Review';
 import User from '../models/User';
+import Artist from '../models/Artist';
+import Employer from '../models/Employer';
 import { CustomRequest } from '../middleware/authMiddleware';
-import { UniqueConstraintError, ValidationError, Sequelize } from 'sequelize'; // <<< IMPORT Sequelize
-import Artist  from '../models/Artist';
-import Employer  from '../models/Employer';
-
+import { UniqueConstraintError, ValidationError, Sequelize } from 'sequelize'; // <<< CORRECT: Import Sequelize object
 
 export const submitReview = async (req: CustomRequest, res: Response): Promise<void> => {
     try {
@@ -48,9 +47,8 @@ export const submitReview = async (req: CustomRequest, res: Response): Promise<v
             specific_answers: specificAnswers || null,
         });
 
-        // --- THIS IS THE FIX ---
-        // After creating, immediately fetch the new review again, this time with its associations
-        // so the frontend receives the complete data for an instant update.
+        // --- FIX: Re-fetch the review with its associations for the response ---
+        // This ensures the frontend gets the reviewer's name and picture for an instant update.
         const createdReviewWithDetails = await Review.findByPk(newReviewInstance.review_id, {
             include: [
                 {
@@ -64,14 +62,13 @@ export const submitReview = async (req: CustomRequest, res: Response): Promise<v
                 }
             ]
         });
-        // --- END FIX ---
 
         res.status(201).json({ message: 'Review submitted successfully!', review: createdReviewWithDetails });
 
     } catch (error: any) {
          console.error("❌ Error submitting review:", error);
          if (error instanceof UniqueConstraintError) {
-            res.status(409).json({ message: 'You have already submitted a review for this user (constraint error).' });
+            res.status(409).json({ message: 'You have already submitted a review for this user.' });
          } else if (error instanceof ValidationError) {
              res.status(400).json({ message: 'Validation failed.', errors: error.errors?.map((e: any) => e.message) });
          } else {
@@ -79,7 +76,6 @@ export const submitReview = async (req: CustomRequest, res: Response): Promise<v
          }
     }
 };
-
 
 interface SumRatingResult {
   ratingSum: number | string | null;
@@ -96,7 +92,7 @@ export const getAverageRatingForUser = async (req: Request, res: Response): Prom
         const result = await Review.findOne({
             where: { reviewed_user_id: userId },
             attributes: [
-                // --- USE 'Sequelize' (capital S) from the import ---
+                // --- CORRECT: Use 'Sequelize' (capital S) from the import ---
                 [Sequelize.fn('SUM', Sequelize.col('overall_rating')), 'ratingSum'],
                 [Sequelize.fn('COUNT', Sequelize.col('review_id')), 'reviewCount']
             ],
@@ -130,7 +126,6 @@ export const checkExistingReview = async (req: CustomRequest, res: Response): Pr
             res.status(400).json({ message: "Missing reviewerId or reviewedUserId query parameters." });
             return;
         }
-
         const reviewerId = parseInt(reviewerIdString, 10);
         const reviewedUserId = parseInt(reviewedUserIdString, 10);
 
@@ -172,7 +167,7 @@ export const getReviewsForUser = async (req: Request, res: Response): Promise<vo
                     ]
                 }
             ],
-            // --- USE 'Sequelize' (capital S) from the import ---
+            // --- CORRECT: Use 'Sequelize.col' to resolve ambiguity ---
             order: [[Sequelize.col('Review.created_at'), 'DESC']]
          });
   
@@ -195,12 +190,10 @@ export const getReviewsForUser = async (req: Request, res: Response): Promise<vo
                  };
              }
              
-             const plainReviewBase = reviewInstance.get({ plain: true });
-  
              return {
-                 review_id: plainReviewBase.review_id,
-                 overall_rating: plainReviewBase.overall_rating,
-                 specific_answers: plainReviewBase.specific_answers,
+                 review_id: reviewInstance.review_id,
+                 overall_rating: reviewInstance.overall_rating,
+                 specific_answers: reviewInstance.specific_answers,
                  created_at: reviewInstance.createdAt ? reviewInstance.createdAt.toISOString() : null,
                  updated_at: reviewInstance.updatedAt ? reviewInstance.updatedAt.toISOString() : null,
                  reviewer: formattedReviewerData
