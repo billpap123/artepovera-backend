@@ -246,7 +246,6 @@ export const getReviewsForUser = async (req: Request, res: Response): Promise<vo
   
              return {
                  review_id: plainReviewBase.review_id,
-                 chat_id: plainReviewBase.chat_id, 
                  overall_rating: plainReviewBase.overall_rating,
                  specific_answers: plainReviewBase.specific_answers,
                  // This logic for accessing timestamps is correct based on our previous discussions
