@@ -86,7 +86,7 @@ export const getAllJobPostings = async (req: CustomRequest, res: Response, next:
           ],
           // --- THIS IS THE CORRECTED ORDER CLAUSE ---
           // Use the imported Sequelize object to call .col()
-          order: [[Sequelize.col('JobPosting.createdAt'), 'DESC']]
+          order: [[Sequelize.col('JobPosting.created_at'), 'DESC']] // Use the snake_case database column name
           // --- END CORRECTION ---
       });
       
