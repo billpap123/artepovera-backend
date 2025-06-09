@@ -83,21 +83,19 @@ export const getAllJobPostings = async (req: CustomRequest, res: Response, next:
               {
                   model: Employer,
                   as: 'employer',
-                  attributes: ['employer_id', 'user_id'], // Get IDs for linking
+                  attributes: ['employer_id', 'user_id'],
                   include: [{
                       model: User,
                       as: 'user',
-                      attributes: ['user_id', 'fullname', 'profile_picture'] // Get public user details
+                      attributes: ['user_id', 'fullname', 'profile_picture']
                   }],
               },
           ],
           // --- THIS IS THE CORRECTED ORDER CLAUSE ---
-          // Explicitly order by the 'createdAt' column of the 'JobPosting' model to resolve ambiguity
+          // Use the Model name to specify which table's column to use
           order: [[JobPosting, 'createdAt', 'DESC']]
-          // --- END CORRECTION ---
       });
       
-      // No need for mapping, res.json() will serialize the Sequelize instances correctly
       res.status(200).json(jobPostings);
   } catch (error) {
       console.error('Error fetching job postings:', error);

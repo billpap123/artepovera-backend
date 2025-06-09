@@ -34,7 +34,11 @@ import '../models/associations';
 // ***** REMOVED: Ensure the "uploads" folder exists *****
 
 const router = Router();
-
+router.get(
+  '/artists/my-applications', // Endpoint for the logged-in artist to get their applications
+  authenticate,
+  artistController.getMyArtistApplications // Points to the new function in artistController
+);
 // --- Notification routes ---
 router.get('/notifications/:userId', authenticate, getNotifications);
 router.put('/notifications/:notificationId', authenticate, markNotificationAsRead);
@@ -122,11 +126,7 @@ router.put('/job-postings/:job_id', authenticate, jobPostingController.updateJob
 router.delete('/job-postings/:job_id', authenticate, jobPostingController.deleteJobPosting);
 router.get('/job-postings', authenticate, jobPostingController.getAllJobPostings);
 router.post('/jobs/:jobId/apply', authenticate, jobPostingController.applyToJob);
-router.get(
-  '/artists/my-applications', // Endpoint for the logged-in artist to get their applications
-  authenticate,
-  artistController.getMyArtistApplications // Points to the new function in artistController
-);
+
 // Route for an artist to apply to a specific job posting
 router.post(
   '/job-postings/:jobId/apply', // <<< This path structure uses :jobId as a parameter
