@@ -245,14 +245,14 @@ export const getReviewsForUser = async (req: Request, res: Response): Promise<vo
              const plainReviewBase = reviewInstance.get({ plain: true });
   
              return {
-                 review_id: plainReviewBase.review_id,
-                 overall_rating: plainReviewBase.overall_rating,
-                 specific_answers: plainReviewBase.specific_answers,
-                 // This logic for accessing timestamps is correct based on our previous discussions
-                 created_at: reviewInstance.createdAt ? reviewInstance.createdAt.toISOString() : null,
-                 updated_at: reviewInstance.updatedAt ? reviewInstance.updatedAt.toISOString() : null,
-                 reviewer: formattedReviewerData
-             };
+                review_id: plainReviewBase.review_id,
+                // --- REMOVE THIS LINE ---
+                // chat_id: plainReviewBase.chat_id, 
+                overall_rating: plainReviewBase.overall_rating,
+                specific_answers: plainReviewBase.specific_answers,
+                created_at: reviewInstance.createdAt ? reviewInstance.createdAt.toISOString() : null,
+                reviewer: formattedReviewerData
+            };
          });
   
          res.status(200).json({ reviews: formattedReviews });
