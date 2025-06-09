@@ -134,13 +134,34 @@ router.post(
   jobPostingController.applyToJob
 );
 
-// --- Chat routes ---
-router.post('/chats', authenticate, chatController.createChat);
-router.post('/chats/send', authenticate, chatController.sendMessage);
-router.get('/chats/:chat_id/messages', authenticate, chatController.getChatHistory);
-router.get('/chats/user/:user_id', authenticate, chatController.fetchMessages);
-router.get('/chats/:chat_id/rating-status', authenticate, chatController.getRatingPromptStatus);
-router.put('/chats/:chat_id/rating-status', authenticate, chatController.updateRatingPromptStatus);
+
+// Creates a chat between the logged-in user and a receiver
+router.post(
+  '/chats', 
+  authenticate, 
+  chatController.createChat
+);
+
+// Sends a message to a specific chat
+router.post(
+  '/chats/send', 
+  authenticate, 
+  chatController.sendMessage
+);
+
+// Gets all messages for a specific chat
+router.get(
+  '/chats/:chat_id/messages', 
+  authenticate, 
+  chatController.getChatHistory
+);
+
+// Gets all of the logged-in user's chats
+router.get(
+  '/chats/my-chats', // A new, cleaner route path
+  authenticate, 
+  chatController.fetchUserChats // Use the new function name
+);
 
 
 router.post('/reviews', authenticate, reviewController.submitReview);

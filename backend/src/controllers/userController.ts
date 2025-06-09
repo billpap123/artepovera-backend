@@ -23,21 +23,14 @@ interface CustomRequest<T = any> extends Request {
 }
 
 // ─────────────────────────────────────────────────────────────
-// TOGGLE A LIKE ON A USER
+// THIS IS THE COMPLETE, UPDATED FUNCTION
 // ─────────────────────────────────────────────────────────────
-// src/controllers/userController.ts
-// ... (keep all other imports: Request, Response, User, Artist, Employer, Like, Notification, Op, Chat, sequelize, Sequelize, CustomRequest)
-
 export const toggleLike = async (req: CustomRequest, res: Response): Promise<void> => {
     const loggedInUserId = req.user?.id;
     const likedUserId = parseInt(req.params.userId, 10);
 
-    if (!loggedInUserId || !likedUserId || isNaN(likedUserId)) {
-        res.status(400).json({ error: 'Invalid request. User IDs are required.' });
-        return;
-    }
-    if (loggedInUserId === likedUserId) {
-        res.status(400).json({ error: 'Users cannot like themselves.' });
+    if (!loggedInUserId || !likedUserId || isNaN(likedUserId) || loggedInUserId === likedUserId) {
+        res.status(400).json({ error: 'Invalid request.' });
         return;
     }
 
@@ -47,111 +40,77 @@ export const toggleLike = async (req: CustomRequest, res: Response): Promise<voi
         });
 
         if (existingLike) {
+            // User is "unliking"
             await existingLike.destroy();
-            return void res.status(200).json({ message: 'Like removed', liked: false });
+            res.status(200).json({ message: 'Like removed', liked: false });
+            return; // Exit function
         }
 
-        const newLike = await Like.create({ user_id: loggedInUserId, liked_user_id: likedUserId });
+        // Create the new like
+        await Like.create({ user_id: loggedInUserId, liked_user_id: likedUserId });
 
-        const loggedInUser = await User.findByPk(loggedInUserId, { attributes: ['fullname', 'user_type'] });
-        const otherUserRow = await User.findByPk(likedUserId, { attributes: ['user_id', 'user_type', 'fullname'] });
+        // Fetch user details for notifications
+        const loggedInUser = await User.findByPk(loggedInUserId, { attributes: ['fullname'] });
+        const otherUser = await User.findByPk(likedUserId, { attributes: ['fullname'] });
 
-        if (loggedInUser && otherUserRow) {
-            await Notification.create({
-                user_id: likedUserId,
-                message: `${loggedInUser.fullname || 'Someone'} liked you.`,
-                sender_id: loggedInUserId,
-                // like_id: newLike.like_id // Fix Notification model for this
-            });
-        } else {
-            console.warn(`Could not find one or both users (${loggedInUserId}, ${likedUserId}) for like notification`);
+        if (!loggedInUser || !otherUser) {
+            console.warn(`Could not find one or both users (${loggedInUserId}, ${likedUserId}) for notification/chat check.`);
+            res.status(201).json({ message: 'Like added', liked: true });
+            return;
         }
 
+        // Send the initial "like" notification to the other user
+        await Notification.create({
+            user_id: likedUserId,
+            message: `${loggedInUser.fullname || 'Someone'} liked your profile.`,
+            sender_id: loggedInUserId,
+        });
+
+        // Now, check for a mutual like to create a chat
         const mutualLike = await Like.findOne({
             where: { user_id: likedUserId, liked_user_id: loggedInUserId },
         });
 
-        if (!mutualLike || !otherUserRow || !loggedInUser) {
-            return void res.status(201).json({ message: 'Like added', liked: true });
+        if (!mutualLike) {
+            // No mutual like yet, so just confirm the like was added and finish
+            res.status(201).json({ message: 'Like added', liked: true });
+            return;
         }
+        
+        // --- NEW CHAT CREATION LOGIC FOR ANY USER TYPE ---
+        console.log(`Mutual like! Finding/creating chat for users ${loggedInUserId} and ${likedUserId}`);
+        
+        // To prevent duplicate chats (e.g., between user 1-5 and 5-1), we always store the smaller ID as user1_id.
+        const user1 = Math.min(loggedInUserId, likedUserId);
+        const user2 = Math.max(loggedInUserId, likedUserId);
 
-        console.log(`Mutual like detected between User ${loggedInUserId} and User ${likedUserId}`);
-        let chat: Chat | null = null;
-        const loggedUserType = loggedInUser.user_type;
-        const otherUserType = otherUserRow.user_type;
-
-        let artistUser_actualId: number | null = null; // This will hold the user_id of the artist
-        let employerUser_actualId: number | null = null; // This will hold the user_id of the employer
-
-        if (loggedUserType === 'Artist' && otherUserType === 'Employer') {
-            artistUser_actualId = loggedInUserId;
-            employerUser_actualId = likedUserId;
-        } else if (loggedUserType === 'Employer' && otherUserType === 'Artist') {
-            artistUser_actualId = likedUserId;
-            employerUser_actualId = loggedInUserId;
-        }
-
-        if (artistUser_actualId && employerUser_actualId) {
-            // --- FIX: Fetch actual artist_id and employer_id ---
-            const artistProfile = await Artist.findOne({ where: { user_id: artistUser_actualId }, attributes: ['artist_id'] });
-            const employerProfile = await Employer.findOne({ where: { user_id: employerUser_actualId }, attributes: ['employer_id'] });
-
-            if (artistProfile && employerProfile) {
-                const actualArtistProfileId = artistProfile.artist_id;
-                const actualEmployerProfileId = employerProfile.employer_id;
-
-                console.log(`Attempting to find/create chat for Artist ID: ${actualArtistProfileId} and Employer ID: ${actualEmployerProfileId}`);
-
-                // Use the actual artist_id and employer_id for the Chat model attributes
-                // (Remember your Chat model maps artist_user_id to artist_id column and employer_user_id to employer_id column)
-                [chat] = await Chat.findOrCreate({
-                    where: { artist_user_id: actualArtistProfileId, employer_user_id: actualEmployerProfileId },
-                    defaults: { artist_user_id: actualArtistProfileId, employer_user_id: actualEmployerProfileId }
-                });
-
-                if (chat) {
-                    console.log(`Chat found or created with ID: ${chat.chat_id}`);
-                    
-                    // --- UPDATED NOTIFICATION LOGIC ---
-                    
-                    // Define your frontend URL. Best practice is to use an environment variable.
-                    const frontendUrl = process.env.FRONTEND_URL || 'https://artepovera2.vercel.app';
-                    
-                    // Create a dynamic link to your chat page. 
-                    // You might want to pass the specific chatId to automatically open the conversation.
-                    const chatLink = `${frontendUrl}/chat?open=${chat.chat_id}`;
-
-                    const messageForLikedUser = `You have a new match with ${loggedInUser.fullname || 'a user'}! <a href="${chatLink}" target="_blank" rel="noopener noreferrer">Start Chatting</a>`;
-                    const messageForLoggedInUser = `You matched with ${otherUserRow.fullname || 'a user'}! <a href="${chatLink}" target="_blank" rel="noopener noreferrer">Start Chatting</a>`;
-
-                    // Notify the user who was liked
-                    await Notification.create({
-                        user_id: likedUserId,
-                        message: messageForLikedUser,
-                        sender_id: loggedInUserId,
-                    });
-                    
-                    // Notify the user who did the liking
-                    await Notification.create({
-                        user_id: loggedInUserId,
-                        message: messageForLoggedInUser,
-                        sender_id: likedUserId,
-                    });
-                    
-                    // --- END UPDATED NOTIFICATION LOGIC ---
-                }
-            } else {
-                console.log('Could not find corresponding Artist or Employer profile for one or both users.');
+        // `findOrCreate` will now look for the specific pair (e.g., 1 and 5) and never (5 and 1).
+        // This enforces uniqueness at the application level.
+        const [chat] = await Chat.findOrCreate({
+            where: {
+                user1_id: user1,
+                user2_id: user2
+            },
+            defaults: { // This data is used only if a new chat is created
+                user1_id: user1,
+                user2_id: user2
             }
-            // --- END FIX ---
-        } else {
-            console.log('Mutual like between same user types, or user types not determined; no chat created.');
-        }
+        });
+        
+        // --- Create match notifications with links ---
+        const frontendUrl = process.env.FRONTEND_URL || 'https://artepovera2.vercel.app';
+        const chatLink = `${frontendUrl}/chat?open=${chat.chat_id}`;
+        
+        const messageForOtherUser = `You have a new match with ${loggedInUser.fullname}! <a href="${chatLink}" target="_blank" rel="noopener noreferrer">Start Chatting</a>`;
+        const messageForLoggedInUser = `You matched with ${otherUser.fullname}! <a href="${chatLink}" target="_blank" rel="noopener noreferrer">Start Chatting</a>`;
+
+        await Notification.create({ user_id: likedUserId, message: messageForOtherUser, sender_id: loggedInUserId });
+        await Notification.create({ user_id: loggedInUserId, message: messageForLoggedInUser, sender_id: likedUserId });
 
         res.status(201).json({
-            message: 'Like added (mutual like detected).',
+            message: 'Like added (mutual match detected!).',
             liked: true,
-            chat_id: chat?.chat_id || null
+            chat_id: chat.chat_id,
         });
 
     } catch (error) {
@@ -159,6 +118,7 @@ export const toggleLike = async (req: CustomRequest, res: Response): Promise<voi
         res.status(500).json({ error: 'Failed to toggle like' });
     }
 };
+
 
 // ... (keep your other controller functions: checkLike, getCurrentUser, getUserProfile, etc.) ...
 
