@@ -81,25 +81,32 @@ export const toggleLike = async (req: CustomRequest, res: Response): Promise<voi
         // `findOrCreate` will now look for the specific pair using the correct column names.
         const [chat] = await Chat.findOrCreate({
             where: {
-                user1_id: user1,
-                user2_id: user2
+                user1_id: Math.min(loggedInUserId, likedUserId),
+                user2_id: Math.max(loggedInUserId, likedUserId)
             },
             defaults: {
-                user1_id: user1,
-                user2_id: user2
+                user1_id: Math.min(loggedInUserId, likedUserId),
+                user2_id: Math.max(loggedInUserId, likedUserId)
             }
         });
-        
-        // --- Create match notifications with links ---
+  // 1. Get the frontend URL from environment variables.
+        //    On your live Render server, this will be "https://artepovera2.vercel.app".
+        //    On your local computer, it will fall back to a default value.
         const frontendUrl = process.env.FRONTEND_URL || 'https://artepovera2.vercel.app';
-        const chatLink = `${frontendUrl}/chat?open=${chat.chat_id}`;
         
-        const messageForOtherUser = `You have a new match with ${loggedInUser.fullname}! <a href="${chatLink}" target="_blank" rel="noopener noreferrer">Start Chatting</a>`;
-        const messageForLoggedInUser = `You matched with ${otherUser.fullname}! <a href="${chatLink}" target="_blank" rel="noopener noreferrer">Start Chatting</a>`;
+        // 2. Create a dynamic link to your chat page.
+        //    This link tells your ChatPage which conversation to open immediately.
+        const chatLink = `${frontendUrl}/chat?open=${chat.chat_id}`;
 
+        // 3. Create the HTML messages with the correct link.
+        const messageForOtherUser = `You have a new match with ${loggedInUser.fullname}! <a href="${chatLink}">Start Chatting</a>`;
+        const messageForLoggedInUser = `You matched with ${otherUser.fullname}! <a href="${chatLink}">Start Chatting</a>`;
+
+        // 4. Create and save the notifications to the database.
         await Notification.create({ user_id: likedUserId, message: messageForOtherUser, sender_id: loggedInUserId });
         await Notification.create({ user_id: loggedInUserId, message: messageForLoggedInUser, sender_id: likedUserId });
 
+        // --- END OF CORRECTION ---
         res.status(201).json({
             message: 'Like added (mutual match detected!).',
             liked: true,
