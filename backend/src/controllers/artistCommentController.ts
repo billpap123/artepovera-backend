@@ -7,6 +7,7 @@ import Artist from '../models/Artist';
 import Employer from '../models/Employer';
 import { UniqueConstraintError } from 'sequelize'; // Import for better error handling
 
+
 export const createArtistComment = async (req: CustomRequest, res: Response): Promise<void> => {
     const loggedInUserId = req.user?.id;
     const loggedInUserType = req.user?.user_type;
@@ -14,26 +15,29 @@ export const createArtistComment = async (req: CustomRequest, res: Response): Pr
     const { comment_text } = req.body;
 
     // --- Validations ---
-    if (!loggedInUserId) { res.status(401).json({ message: "Unauthorized. Please log in to comment." }); return; }
-    if (loggedInUserType !== 'Artist') { res.status(403).json({ message: "Forbidden. Only artists can post artistic viewpoints." }); return; }
-    if (isNaN(profileUserId)) { res.status(400).json({ message: "Invalid profile user ID." }); return; }
-    if (!comment_text || typeof comment_text !== 'string' || comment_text.trim() === "") { res.status(400).json({ message: "Comment text cannot be empty." }); return; }
-    if (loggedInUserId === profileUserId) { res.status(400).json({ message: "Artists cannot comment on their own profile." }); return; }
+    if (!loggedInUserId || loggedInUserType !== 'Artist') {
+        res.status(403).json({ message: "Forbidden. Only artists can post artistic viewpoints." });
+        return;
+    }
+    if (isNaN(profileUserId) || !comment_text || typeof comment_text !== 'string' || comment_text.trim() === "") {
+        res.status(400).json({ message: "Invalid input." });
+        return;
+    }
+    if (loggedInUserId === profileUserId) {
+        res.status(400).json({ message: "Artists cannot comment on their own profile." });
+        return;
+    }
 
     try {
         const profileUser = await User.findByPk(profileUserId);
         if (!profileUser || profileUser.user_type !== 'Artist') {
-            res.status(404).json({ message: "Artist profile to comment on not found or user is not an artist." });
+            res.status(404).json({ message: "Artist profile to comment on not found." });
             return;
         }
 
         const existingComment = await ArtistComment.findOne({
-            where: {
-                commenter_user_id: loggedInUserId,
-                profile_user_id: profileUserId
-            }
+            where: { commenter_user_id: loggedInUserId, profile_user_id: profileUserId }
         });
-
         if (existingComment) {
             res.status(409).json({ message: "You have already shared a viewpoint on this artist's profile." });
             return;
@@ -45,10 +49,13 @@ export const createArtistComment = async (req: CustomRequest, res: Response): Pr
             comment_text: comment_text.trim(),
         });
 
+        // --- THIS IS THE FIX ---
+        // After creating, immediately fetch the new comment again, this time with its associations.
+        // This ensures the frontend gets the commenter's name and picture for an instant update.
         const createdCommentWithDetails = await ArtistComment.findByPk(newCommentInstance.comment_id, {
             include: [{
                 model: User,
-                as: 'commenterArtist',
+                as: 'commenterArtist', // This alias must match your associations.ts
                 attributes: ['user_id', 'fullname', 'user_type'],
                 include: [
                     { model: Artist, as: 'artistProfile', attributes: ['profile_picture'], required: false },
@@ -56,51 +63,20 @@ export const createArtistComment = async (req: CustomRequest, res: Response): Pr
                 ]
             }]
         });
+        // --- END FIX ---
 
-        if (!createdCommentWithDetails) {
-            res.status(404).json({ message: "Failed to retrieve created comment details." });
-            return;
-        }
-        
-        // Your logic for formatting the commenter data...
-        const commenterUserSequelizeInstance = createdCommentWithDetails.commenterArtist;
-        let formattedCommenterData: any = null;
-        if (commenterUserSequelizeInstance) {
-            let profilePic = null;
-            if (commenterUserSequelizeInstance.user_type === 'Artist' && commenterUserSequelizeInstance.artistProfile) {
-                profilePic = commenterUserSequelizeInstance.artistProfile.profile_picture;
-            } else if (commenterUserSequelizeInstance.user_type === 'Employer' && commenterUserSequelizeInstance.employerProfile) {
-                profilePic = commenterUserSequelizeInstance.employerProfile.profile_picture;
-            }
-            formattedCommenterData = { /* ... your commenter object ... */ };
-        }
-
-        const plainCreatedCommentBase = createdCommentWithDetails.get({ plain: true });
-        const responseComment = {
-            comment_id: plainCreatedCommentBase.comment_id,
-            profile_user_id: plainCreatedCommentBase.profile_user_id,
-            commenter_user_id: plainCreatedCommentBase.commenter_user_id,
-            comment_text: plainCreatedCommentBase.comment_text,
-            created_at: createdCommentWithDetails.createdAt ? createdCommentWithDetails.createdAt.toISOString() : null,
-            updated_at: createdCommentWithDetails.updatedAt ? createdCommentWithDetails.updatedAt.toISOString() : null,
-            commenter: formattedCommenterData
-        };
-
-        res.status(201).json({ message: "Viewpoint posted successfully!", comment: responseComment });
+        // Now, send the complete, detailed comment object back to the frontend
+        res.status(201).json({ message: "Viewpoint posted successfully!", comment: createdCommentWithDetails });
 
     } catch (error: any) {
-        console.error("Error creating artist comment:", error);
-        // This catch block handles the DB unique constraint as a backup
         if (error instanceof UniqueConstraintError) {
-            // --- THIS IS THE FIX ---
-            res.status(409).json({ message: "You have already shared a viewpoint on this artist's profile." });
-            return; // Exit function after sending response
-            // --- END FIX ---
+            res.status(409).json({ message: "You have already posted a viewpoint on this profile." });
+            return;
         }
-        res.status(500).json({ message: "Failed to post viewpoint.", error: error.message });
+        console.error("Error creating artist comment:", error);
+        res.status(500).json({ message: "Failed to post viewpoint." });
     }
 };
-
 export const getCommentsForUserProfile = async (req: Request, res: Response): Promise<void> => {
     try {
         const profileUserId = parseInt(req.params.userId, 10);
