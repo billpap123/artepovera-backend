@@ -104,37 +104,45 @@ export const getAllJobPostings = async (req: CustomRequest, res: Response, next:
 * @description Fetch a single job posting by ID with the new detailed structure.
 * @route GET /api/job-postings/:job_id
 */
-export const getJobPostingById = async (req: CustomRequest, res: Response, next: NextFunction): Promise<void> => {
-try {
-  const { job_id } = req.params;
+export const getJobPostingById = async (
+  req: CustomRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { job_id } = req.params;
 
-  const jobPosting = await JobPosting.findByPk(job_id, {
-    include: [
-      {
-        model: Employer,
-        as: 'employer',
-        include: [
-          {
-            model: User,
-            as: 'user',
-            attributes: ['user_id', 'fullname', 'profile_picture'],
-          },
-        ],
-      },
-    ],
-  });
+    const jobPosting = await JobPosting.findByPk(job_id, {
+      include: [
+        {
+          model: Employer,
+          as: 'employer',
+          // --- MODIFIED: Select profile_picture from Employer directly ---
+          attributes: ['employer_id', 'user_id', 'profile_picture'],
+          include: [
+            {
+              model: User,
+              as: 'user',
+              // We only need the user's name from here now
+              attributes: ['user_id', 'fullname'],
+            },
+          ],
+        },
+      ],
+    });
 
-  if (!jobPosting) {
-    res.status(404).json({ message: 'Job posting not found' });
-    return;
+    if (!jobPosting) {
+      res.status(404).json({ message: 'Job posting not found' });
+      return;
+    }
+
+    res.json(jobPosting);
+  } catch (error) {
+    console.error('Error fetching job posting:', error);
+    next(error);
   }
-
-  res.json(jobPosting);
-} catch (error) {
-  console.error('Error fetching job posting:', error);
-  next(error);
-}
 };
+
 
 // --- Your other functions (update, delete, applyToJob, etc.) ---
 
