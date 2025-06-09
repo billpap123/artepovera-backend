@@ -7,251 +7,198 @@ import Employer from '../models/Employer';
 import Notification from '../models/Notification';
 import JobApplication from '../models/JobApplication';
 import { UniqueConstraintError, Sequelize } from 'sequelize'; // Keep Sequelize if needed for other fn()
+/**
+ * @description Creates a new, detailed job posting based on the new schema.
+ * @route POST /api/job-postings
+ */
+export const createJobPosting = async (req: CustomRequest, res: Response, next: NextFunction): Promise<void> => {
+  const loggedInUserId = req.user?.id;
+  const loggedInUserType = req.user?.user_type;
 
+  if (!loggedInUserId) {
+      res.status(401).json({ message: "Unauthorized. Please log in." });
+      return;
+  }
+  
+  if (loggedInUserType !== 'Employer') {
+      res.status(403).json({ message: "Forbidden. Only employers can post jobs." });
+      return;
+  }
 
-export const createJobPosting = async (
-  req: CustomRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
   try {
-    // Ensure user is authenticated
-    if (!req.user) {
-      res.status(401).json({ message: 'Unauthorized: User not found' });
-      return;
-    }
+      const employer = await Employer.findOne({ where: { user_id: loggedInUserId } });
+      if (!employer) {
+          res.status(403).json({ message: "Forbidden. An employer profile is required to post a job." });
+          return;
+      }
 
-    // Only Employers can create job postings
-    if (req.user.user_type !== 'Employer') {
-      res.status(403).json({ message: 'Forbidden: Only employers can post jobs' });
-      return;
-    }
+      // Destructure all the new fields from the request body
+      const {
+          title, category, description, location, presence,
+          start_date, end_date, application_deadline,
+          payment_total, payment_is_monthly, payment_monthly_amount,
+          insurance, desired_keywords, requirements
+      } = req.body;
 
-    // Extract employer ID from authenticated user
-    const employerId = req.user.id;
-    // Extract new and existing fields from request body
-    const {
-      title,
-      description,
-      location,
-      city,
-      address,
-      budget,
-      difficulty,
-      deadline,
-      artistCategory, // front-end uses artistCategory
-      insurance,
-    } = req.body;
+      // Basic server-side validation
+      if (!title || !category || !payment_total || !presence) {
+          res.status(400).json({ message: "Title, Category, Total Payment, and Presence are required fields." });
+          return;
+      }
 
-    // Ensure the employer exists
-    const employer = await Employer.findOne({ where: { user_id: employerId } });
-    if (!employer) {
-      res.status(404).json({ message: 'Employer profile not found' });
-      return;
-    }
+      const newJobPosting = await JobPosting.create({
+          employer_id: employer.employer_id,
+          title, category, description, location, presence,
+          start_date: start_date || null,
+          end_date: end_date || null,
+          application_deadline: application_deadline || null,
+          payment_total,
+          payment_is_monthly: !!payment_is_monthly, // Ensure it's a boolean
+          payment_monthly_amount: payment_is_monthly ? payment_monthly_amount : null,
+          insurance: insurance !== undefined ? insurance : null,
+          desired_keywords,
+          requirements, // Save the entire requirements JSON object
+      });
 
-    // Create job posting with the new fields
-    const jobPosting = await JobPosting.create({
-      employer_id: employer.employer_id, // Use employer's actual ID
-      title,
-      description,
-      location,
-      city,
-      address,
-      budget,
-      difficulty,
-      deadline,
-      artist_category: artistCategory, // mapping to model's field name
-      insurance,
-    });
+      res.status(201).json({ message: "Job posting created successfully!", jobPosting: newJobPosting });
 
-    res.status(201).json({
-      message: 'Job posted successfully!',
-      jobPosting,
-    });
   } catch (error) {
-    console.error('Error creating job posting:', error);
-    next(error);
+      console.error('Error creating job posting:', error);
+      next(error);
   }
 };
 
+/**
+* @description Fetches all job postings with the new detailed structure.
+* @route GET /api/job-postings
+*/
 export const getAllJobPostings = async (req: CustomRequest, res: Response, next: NextFunction) => {
   try {
-    const jobPostings = await JobPosting.findAll({
-      attributes: [
-        'job_id',
-        'title',
-        'description',
-        'city',
-        'address',
-        'budget',
-        'difficulty',
-        'deadline',
-        'artist_category',
-        'insurance',
-        'created_at',
-      ],
-      include: [
-        {
-          model: Employer,
-          as: 'employer',
-          include: [{ model: User, as: 'user', attributes: ['fullname'] }],
-        },
-      ],
-    });
-
-    res.status(200).json(
-      jobPostings.map((job) => ({
-        id: job.job_id,
-        title: job.title,
-        description: job.description,
-        city: job.city,
-        address: job.address,
-        budget: job.budget,
-        difficulty: job.difficulty,
-        deadline: job.deadline,
-        artistCategory: job.artist_category,
-        insurance: job.insurance,
-        created_at: job.created_at,
-        employerName: job.employer?.user?.fullname || 'Unknown',
-      }))
-    );
-  } catch (error) {
-    console.error('Error fetching job postings:', error);
-    next(error);
-  }
-};
-
-/**
- * GET /api/job-postings/:job_id
- * Fetch a single job posting by ID
- */
-export const getJobPostingById = async (
-  req: CustomRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-  try {
-    const { job_id } = req.params;
-
-    const jobPosting = await JobPosting.findByPk(job_id, {
-      include: [
-        {
-          model: Employer,
-          as: 'employer',
+      const jobPostings = await JobPosting.findAll({
           include: [
-            {
-              model: User,
-              as: 'user',
-              attributes: ['fullname'],
-            },
+              {
+                  model: Employer,
+                  as: 'employer',
+                  attributes: ['employer_id'], // We only need the ID, user details are nested
+                  include: [{
+                      model: User,
+                      as: 'user',
+                      attributes: ['user_id', 'fullname', 'profile_picture'] // Get user details
+                  }],
+              },
           ],
-        },
-      ],
-    });
+          order: [['createdAt', 'DESC']]
+      });
 
-    if (!jobPosting) {
-      res.status(404).json({ message: 'Job posting not found' });
-      return;
-    }
-
-    res.json({
-      id: jobPosting.job_id,
-      title: jobPosting.title,
-      description: jobPosting.description,
-      city: jobPosting.city,
-      address: jobPosting.address,
-      budget: jobPosting.budget,
-      difficulty: jobPosting.difficulty,
-      deadline: jobPosting.deadline,
-      artistCategory: jobPosting.artist_category,
-      insurance: jobPosting.insurance,
-      employerName: jobPosting.employer?.user?.fullname || 'Unknown',
-      created_at: jobPosting.created_at,
-    });
+      // The raw jobPostings objects can be sent directly. 
+      // Sequelize's .toJSON() method (called by res.json) will handle serialization.
+      // The frontend will receive all the new fields.
+      res.status(200).json(jobPostings);
   } catch (error) {
-    console.error('Error fetching job posting:', error);
-    next(error);
+      console.error('Error fetching job postings:', error);
+      next(error);
   }
 };
 
 /**
- * PUT /api/job-postings/:job_id
- * Update a specific job posting
- */
-export const updateJobPosting = async (
-  req: CustomRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-  try {
-    const { job_id } = req.params;
-    // Extract new and existing fields from request body
-    const {
-      title,
-      description,
-      location,
-      city,
-      address,
-      budget,
-      difficulty,
-      deadline,
-      artistCategory,
-      insurance,
-    } = req.body;
+* @description Fetch a single job posting by ID with the new detailed structure.
+* @route GET /api/job-postings/:job_id
+*/
+export const getJobPostingById = async (req: CustomRequest, res: Response, next: NextFunction): Promise<void> => {
+try {
+  const { job_id } = req.params;
 
-    const jobPosting = await JobPosting.findByPk(job_id);
-    if (!jobPosting) {
-      res.status(404).json({ message: 'Job posting not found' });
-      return;
-    }
+  const jobPosting = await JobPosting.findByPk(job_id, {
+    include: [
+      {
+        model: Employer,
+        as: 'employer',
+        include: [
+          {
+            model: User,
+            as: 'user',
+            attributes: ['user_id', 'fullname', 'profile_picture'],
+          },
+        ],
+      },
+    ],
+  });
 
-    // Update fields if provided, otherwise keep current values
-    jobPosting.title = title || jobPosting.title;
-    jobPosting.description = description || jobPosting.description;
-    jobPosting.location = location || jobPosting.location;
-    jobPosting.city = city || jobPosting.city;
-    jobPosting.address = address || jobPosting.address;
-    jobPosting.budget = budget || jobPosting.budget;
-    jobPosting.difficulty = difficulty || jobPosting.difficulty;
-    jobPosting.deadline = deadline || jobPosting.deadline;
-    jobPosting.artist_category = artistCategory || jobPosting.artist_category;
-    jobPosting.insurance = insurance !== undefined ? insurance : jobPosting.insurance;
-
-    await jobPosting.save();
-
-    res.json(jobPosting);
-  } catch (error) {
-    console.error('Error updating job posting:', error);
-    next(error);
+  if (!jobPosting) {
+    res.status(404).json({ message: 'Job posting not found' });
+    return;
   }
+
+  res.json(jobPosting);
+} catch (error) {
+  console.error('Error fetching job posting:', error);
+  next(error);
+}
+};
+
+// --- Your other functions (update, delete, applyToJob, etc.) ---
+
+/**
+* @description Update a specific job posting with new fields.
+* @route PUT /api/job-postings/:job_id
+*/
+export const updateJobPosting = async (req: CustomRequest, res: Response, next: NextFunction): Promise<void> => {
+try {
+  const { job_id } = req.params;
+  const jobPosting = await JobPosting.findByPk(job_id);
+
+  if (!jobPosting) {
+    res.status(404).json({ message: 'Job posting not found' });
+    return;
+  }
+  
+  // Authorization Check: Ensure the person updating is the one who created it.
+  const employer = await Employer.findOne({ where: { user_id: req.user?.id } });
+  if (!employer || jobPosting.employer_id !== employer.employer_id) {
+      res.status(403).json({ message: "Forbidden: You can only update your own job postings." });
+      return;
+  }
+
+  // Update with all the new fields from the request body
+  const updatedData = req.body;
+  await jobPosting.update(updatedData);
+
+  res.json(jobPosting);
+} catch (error) {
+  console.error('Error updating job posting:', error);
+  next(error);
+}
 };
 
 /**
- * DELETE /api/job-postings/:job_id
- * Delete a specific job posting
- */
-export const deleteJobPosting = async (
-  req: CustomRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
+* @description Delete a specific job posting.
+* @route DELETE /api/job-postings/:job_id
+*/
+export const deleteJobPosting = async (req: CustomRequest, res: Response, next: NextFunction): Promise<void> => {
+  // This function logic can remain largely the same, but we add an authorization check
   try {
-    const { job_id } = req.params;
-    const jobPosting = await JobPosting.findByPk(job_id);
+      const { job_id } = req.params;
+      const jobPosting = await JobPosting.findByPk(job_id);
 
-    if (!jobPosting) {
-      res.status(404).json({ message: 'Job posting not found' });
-      return;
-    }
+      if (!jobPosting) {
+          res.status(404).json({ message: 'Job posting not found' });
+          return;
+      }
 
-    await jobPosting.destroy();
-    res.status(204).send();
+      const employer = await Employer.findOne({ where: { user_id: req.user?.id } });
+      if (!employer || jobPosting.employer_id !== employer.employer_id) {
+          res.status(403).json({ message: "Forbidden: You can only delete your own job postings." });
+          return;
+      }
+
+      await jobPosting.destroy();
+      res.status(204).send(); // No content
   } catch (error) {
-    console.error('Error deleting job posting:', error);
-    next(error);
+      console.error('Error deleting job posting:', error);
+      next(error);
   }
 };
+
 
 /**
  * GET /api/job-postings/employer?employer_id=XX
