@@ -10,19 +10,48 @@ import { UniqueConstraintError, ValidationError, Sequelize } from 'sequelize'; /
 export const submitReview = async (req: CustomRequest, res: Response): Promise<void> => {
     try {
         const loggedInUserId = req.user?.id;
+        // Destructure all possible fields from the request body
         const { reviewedUserId, overallRating, specificAnswers } = req.body;
 
+        // --- 1. New, More Detailed Validation ---
         if (!loggedInUserId) {
             res.status(401).json({ message: 'Unauthorized: Missing reviewer ID.' });
             return;
         }
-        if (reviewedUserId === undefined || overallRating === undefined) {
-            res.status(400).json({ message: 'Missing required fields.' });
+
+        // The most important piece of data now is 'dealMade' inside specificAnswers
+        if (!reviewedUserId || !specificAnswers || !specificAnswers.dealMade) {
+            res.status(400).json({ message: 'Missing required fields. reviewedUserId and dealMade are required.' });
             return;
         }
+
+        const { dealMade, communicationRating_noDeal, noDealPrimaryReason } = specificAnswers;
+
+        // Validate the "yes" path
+        if (dealMade === 'yes') {
+            if (typeof overallRating !== 'number' || overallRating < 1 || overallRating > 5) {
+                res.status(400).json({ message: 'For a completed deal, a valid overall rating (1-5) is required.' });
+                return;
+            }
+        } 
+        // Validate the "no" path
+        else if (dealMade === 'no') {
+            if (typeof communicationRating_noDeal !== 'number' || communicationRating_noDeal < 1 || communicationRating_noDeal > 5) {
+                res.status(400).json({ message: 'For an incomplete deal, a valid communication rating (1-5) is required.' });
+                return;
+            }
+            if (!noDealPrimaryReason) {
+                res.status(400).json({ message: 'For an incomplete deal, a primary reason is required.' });
+                return;
+            }
+        } else {
+            res.status(400).json({ message: "Invalid value for 'dealMade'. Must be 'yes' or 'no'." });
+            return;
+        }
+
         const numericReviewedUserId = parseInt(reviewedUserId, 10);
         if (isNaN(numericReviewedUserId) || loggedInUserId === numericReviewedUserId) {
-            res.status(400).json({ message: 'Invalid request.' });
+            res.status(400).json({ message: 'Invalid request. Cannot review yourself.' });
             return;
         }
         
@@ -34,13 +63,25 @@ export const submitReview = async (req: CustomRequest, res: Response): Promise<v
             return;
         }
 
-        const newReviewInstance = await Review.create({
+        // --- 2. New Data Preparation for Sequelize ---
+        // This object now perfectly matches our updated database schema and Sequelize model
+        const reviewDataToCreate = {
             reviewer_user_id: loggedInUserId,
             reviewed_user_id: numericReviewedUserId,
-            overall_rating: overallRating,
-            specific_answers: specificAnswers || null,
-        });
+            
+            // Map frontend data to the correct database columns
+            deal_made: dealMade === 'yes', // Convert to boolean
+            overall_rating: dealMade === 'yes' ? overallRating : null,
+            communication_rating_no_deal: dealMade === 'no' ? communicationRating_noDeal : null,
+            no_deal_primary_reason: dealMade === 'no' ? noDealPrimaryReason : null,
+            
+            // Still save the whole object in the JSON field for flexibility and other data like comments
+            specific_answers: specificAnswers,
+        };
 
+        const newReviewInstance = await Review.create(reviewDataToCreate);
+
+        // Fetch the full review with associations to send back to the frontend
         const createdReviewWithDetails = await Review.findByPk(newReviewInstance.review_id, {
             include: [
                 {
@@ -71,13 +112,13 @@ export const submitReview = async (req: CustomRequest, res: Response): Promise<v
 
 
 
+
 // --- Your other functions are already correct and don't need changes ---
 
 interface SumRatingResult {
   ratingSum: number | string | null;
   reviewCount: number | string;
 }
-
 
 export const getAverageRatingForUser = async (req: Request, res: Response): Promise<void> => {
     try {
@@ -86,24 +127,21 @@ export const getAverageRatingForUser = async (req: Request, res: Response): Prom
             res.status(400).json({ message: 'Invalid User ID.' }); return;
         }
   
+        // This query correctly ignores NULL ratings from "no" deals, so no change is needed.
         const result = await Review.findOne({
             where: { reviewed_user_id: userId },
             attributes: [
-                // --- CORRECT: Use 'Sequelize' (capital S) from the import ---
                 [Sequelize.fn('SUM', Sequelize.col('overall_rating')), 'ratingSum'],
                 [Sequelize.fn('COUNT', Sequelize.col('review_id')), 'reviewCount']
             ],
             raw: true
-        }) as unknown as SumRatingResult | null;
+        }) as unknown as { ratingSum: number | null, reviewCount: string } | null;
   
-        const reviewCount = result?.reviewCount ? parseInt(String(result.reviewCount), 10) : 0;
+        const reviewCount = result?.reviewCount ? parseInt(result.reviewCount, 10) : 0;
         let averageRating: number | null = null;
   
         if (reviewCount > 0 && result?.ratingSum != null) {
-            const ratingSumValue = parseFloat(String(result.ratingSum));
-            if (!isNaN(ratingSumValue)) {
-                 averageRating = parseFloat((ratingSumValue / reviewCount).toFixed(1));
-            }
+            averageRating = parseFloat((result.ratingSum / reviewCount).toFixed(1));
         }
         
         res.status(200).json({ averageRating: averageRating, reviewCount: reviewCount });
@@ -151,6 +189,8 @@ export const getReviewsForUser = async (req: Request, res: Response): Promise<vo
              return; 
          }
   
+         // This query will fetch all data, including the new fields in specific_answers.
+         // The frontend will then filter the results into two lists. No changes are needed here.
          const reviewsInstances = await Review.findAll({
             where: { reviewed_user_id: userId },
             include: [
@@ -164,36 +204,34 @@ export const getReviewsForUser = async (req: Request, res: Response): Promise<vo
                     ]
                 }
             ],
-            // --- CORRECT: Use 'Sequelize.col' to resolve ambiguity ---
             order: [[Sequelize.col('Review.created_at'), 'DESC']]
          });
   
-         const formattedReviews = reviewsInstances.map(reviewInstance => {
-             const reviewerInstance = reviewInstance.reviewer;
-             let formattedReviewerData: any = null;
-  
-             if (reviewerInstance) {
-                 let reviewerProfilePic: string | null = null;
-                 if (reviewerInstance.user_type === 'Artist' && reviewerInstance.artistProfile) {
-                     reviewerProfilePic = reviewerInstance.artistProfile.profile_picture;
-                 } else if (reviewerInstance.user_type === 'Employer' && reviewerInstance.employerProfile) {
-                     reviewerProfilePic = reviewerInstance.employerProfile.profile_picture;
-                 }
-                 formattedReviewerData = {
-                     user_id: reviewerInstance.user_id,
-                     fullname: reviewerInstance.fullname,
-                     user_type: reviewerInstance.user_type,
-                     profile_picture: reviewerProfilePic || null
-                 };
-             }
-             
+         // We must reconstruct the response to match the frontend's expectations now.
+         const formattedReviews = reviewsInstances.map(review => {
+            const reviewerData = review.reviewer ? {
+                user_id: review.reviewer.user_id,
+                fullname: review.reviewer.fullname,
+                user_type: review.reviewer.user_type,
+                profile_picture: review.reviewer.user_type === 'Artist' 
+                    ? review.reviewer.artistProfile?.profile_picture 
+                    : review.reviewer.employerProfile?.profile_picture,
+            } : null;
+
              return {
-                 review_id: reviewInstance.review_id,
-                 overall_rating: reviewInstance.overall_rating,
-                 specific_answers: reviewInstance.specific_answers,
-                 created_at: reviewInstance.createdAt ? reviewInstance.createdAt.toISOString() : null,
-                 updated_at: reviewInstance.updatedAt ? reviewInstance.updatedAt.toISOString() : null,
-                 reviewer: formattedReviewerData
+                 review_id: review.review_id,
+                 overall_rating: review.overall_rating,
+                 // The frontend expects the full `specific_answers` object.
+                 // We stored most important data in top-level columns, so we reconstruct it.
+                 specific_answers: {
+                    dealMade: review.deal_made ? 'yes' : 'no',
+                    communicationRating_noDeal: review.communication_rating_no_deal,
+                    noDealPrimaryReason: review.no_deal_primary_reason,
+                    // Pass along any other answers like comments that are in the JSON blob.
+                    ...(review.specific_answers as object || {})
+                 },
+                 created_at: review.createdAt,
+                 reviewer: reviewerData,
              };
          });
   
