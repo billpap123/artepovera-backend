@@ -17,6 +17,7 @@ import * as artistSupportController from '../controllers/artistSupportController
 import * as artistCommentController from '../controllers/artistCommentController'; // <<< ADD THIS
 import { isAdmin } from '../middleware/adminMiddleware';
 import * as adminController from '../controllers/adminController';
+import { getAllCategories } from '../controllers/category.controller';
 
 import { getLocations } from '../controllers/locationController';
 import {
@@ -34,6 +35,10 @@ import '../models/associations';
 // ***** REMOVED: Ensure the "uploads" folder exists *****
 
 const router = Router();
+
+// This creates the endpoint: GET /api/categories/
+router.get('/', getAllCategories);
+
 router.get(
   '/artists/my-applications', // Endpoint for the logged-in artist to get their applications
   authenticate,

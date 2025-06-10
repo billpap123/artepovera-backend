@@ -7,6 +7,7 @@ import Employer from '../models/Employer';
 import Notification from '../models/Notification';
 import JobApplication from '../models/JobApplication';
 import { UniqueConstraintError, Sequelize } from 'sequelize'; // The main Sequelize object
+import Category from '../models/Category'; // <-- 1. IMPORT THE NEW CATEGORY MODEL
 
 
 /**
@@ -14,6 +15,7 @@ import { UniqueConstraintError, Sequelize } from 'sequelize'; // The main Sequel
  * @route POST /api/job-postings
  */
 export const createJobPosting = async (req: CustomRequest, res: Response, next: NextFunction): Promise<void> => {
+  // 1. Authorization: Ensure user is a logged-in employer
   const loggedInUserId = req.user?.id;
   const loggedInUserType = req.user?.user_type;
 
@@ -34,7 +36,7 @@ export const createJobPosting = async (req: CustomRequest, res: Response, next: 
           return;
       }
 
-      // Destructure all the new fields from the request body
+      // 2. Destructure and validate the request body
       const {
           title, category, description, location, presence,
           start_date, end_date, application_deadline,
@@ -42,15 +44,26 @@ export const createJobPosting = async (req: CustomRequest, res: Response, next: 
           insurance, desired_keywords, requirements
       } = req.body;
 
-      // Basic server-side validation
       if (!title || !category || !payment_total || !presence) {
           res.status(400).json({ message: "Title, Category, Total Payment, and Presence are required fields." });
           return;
       }
 
+      // 3. Find or Create the Category in the database
+      // This handles both existing categories and new ones submitted by users.
+      const [categoryRecord] = await Category.findOrCreate({
+          where: { name: category.trim() },
+          defaults: { name: category.trim() },
+      });
+
+      // 4. Create the new Job Posting with the validated data
       const newJobPosting = await JobPosting.create({
           employer_id: employer.employer_id,
-          title, category, description, location, presence,
+          title,
+          category: categoryRecord.name, // Use the definitive name from the database record
+          description,
+          location,
+          presence,
           start_date: start_date || null,
           end_date: end_date || null,
           application_deadline: application_deadline || null,
@@ -59,14 +72,15 @@ export const createJobPosting = async (req: CustomRequest, res: Response, next: 
           payment_monthly_amount: payment_is_monthly ? payment_monthly_amount : null,
           insurance: insurance !== undefined ? insurance : null,
           desired_keywords,
-          requirements, // Save the entire requirements JSON object
+          requirements,
       });
 
+      // 5. Send a success response
       res.status(201).json({ message: "Job posting created successfully!", jobPosting: newJobPosting });
 
   } catch (error) {
       console.error('Error creating job posting:', error);
-      next(error);
+      next(error); // Pass any errors to your global error handler
   }
 };
 
