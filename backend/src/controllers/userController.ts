@@ -46,6 +46,7 @@ export const toggleLike = async (req: CustomRequest, res: Response): Promise<voi
         }
 
         await Like.create({ user_id: loggedInUserId, liked_user_id: likedUserId });
+        const frontendUrl = process.env.FRONTEND_URL || 'https://artepovera2.vercel.app';
 
         const loggedInUser = await User.findByPk(loggedInUserId, { attributes: ['fullname'] });
         const otherUser = await User.findByPk(likedUserId, { attributes: ['fullname'] });
@@ -55,13 +56,19 @@ export const toggleLike = async (req: CustomRequest, res: Response): Promise<voi
             res.status(201).json({ message: 'Like added', liked: true });
             return;
         }
+ // 2. Create the full URL to the person's profile who sent the like.
+ const likerProfileLink = `${frontendUrl}/user-profile/${loggedInUserId}`;
+        
+ // 3. Create the new notification message with the embedded HTML link.
+ const notificationMessage = `<a href="${likerProfileLink}" target="_blank" rel="noopener noreferrer">${loggedInUser.fullname || 'Someone'}</a> liked your profile.`;
 
-        // Send the initial "like" notification (the other user sees this)
-        await Notification.create({
-            user_id: likedUserId,
-            message: `${loggedInUser.fullname || 'Someone'} liked your profile.`,
-            sender_id: loggedInUserId,
-        });
+ // 4. Create the notification using the new message.
+ await Notification.create({
+     user_id: likedUserId,
+     message: notificationMessage,
+     sender_id: loggedInUserId,
+ });
+
 
         const mutualLike = await Like.findOne({
             where: { user_id: likedUserId, liked_user_id: loggedInUserId },
@@ -84,7 +91,6 @@ export const toggleLike = async (req: CustomRequest, res: Response): Promise<voi
             defaults: { user1_id: user1, user2_id: user2 }
         });
         
-        const frontendUrl = process.env.FRONTEND_URL || 'https://artepovera2.vercel.app';
         const chatLink = `${frontendUrl}/chat?open=${chat.chat_id}`;
         
         const messageForOtherUser = `You have a new match with ${loggedInUser.fullname}! <a href="${chatLink}" target="_blank" rel="noopener noreferrer">Start Chatting</a>`;
