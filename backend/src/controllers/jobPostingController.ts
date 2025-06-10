@@ -8,6 +8,7 @@ import Notification from '../models/Notification';
 import JobApplication from '../models/JobApplication';
 import { UniqueConstraintError, Sequelize } from 'sequelize'; // The main Sequelize object
 
+
 /**
  * @description Creates a new, detailed job posting based on the new schema.
  * @route POST /api/job-postings
@@ -103,6 +104,8 @@ export const getAllJobPostings = async (req: CustomRequest, res: Response, next:
 * @description Fetch a single job posting by ID with the new detailed structure.
 * @route GET /api/job-postings/:job_id
 */
+// src/controllers/jobPosting.controller.ts
+
 export const getJobPostingById = async (
   req: CustomRequest,
   res: Response,
@@ -111,21 +114,20 @@ export const getJobPostingById = async (
   try {
     const { job_id } = req.params;
 
+    // --- STEP 1: Use a simpler, stable query ---
+    // We will fetch the profile_picture from the Employer model directly,
+    // which avoids the nested query problem.
     const jobPosting = await JobPosting.findByPk(job_id, {
       include: [
         {
           model: Employer,
           as: 'employer',
-          attributes: ['employer_id', 'user_id'],
+          attributes: ['employer_id', 'user_id', 'profile_picture'], // Get picture from Employer
           include: [
             {
               model: User,
               as: 'user',
-              attributes: ['user_id', 'fullname', 'profile_picture'],
-              
-              // --- THIS IS THE FIX ---
-              // Add this line to resolve the Sequelize/MySQL query issue for nested includes
-              duplicating: false, 
+              attributes: ['user_id', 'fullname'], // Get user details, but not the picture here
             },
           ],
         },
@@ -137,13 +139,25 @@ export const getJobPostingById = async (
       return;
     }
 
-    res.json(jobPosting);
+    // --- STEP 2: Reshape the data to match the frontend's expectation ---
+    // Convert the Sequelize instance to a plain JavaScript object
+    const jobData = jobPosting.toJSON();
+
+    // If the employer and user exist, manually move the profile picture
+    // so the final object has the shape: job.employer.user.profile_picture
+    if (jobData.employer && jobData.employer.user) {
+      // Use 'as any' to bypass TypeScript's strict check for this one assignment
+      (jobData.employer.user as any).profile_picture = jobData.employer.profile_picture;
+    }
+    
+    // --- STEP 3: Send the correctly shaped data to the frontend ---
+    res.json(jobData);
+
   } catch (error) {
     console.error('Error fetching job posting:', error);
     next(error);
   }
 };
-
 
 
 // --- Your other functions (update, delete, applyToJob, etc.) ---
