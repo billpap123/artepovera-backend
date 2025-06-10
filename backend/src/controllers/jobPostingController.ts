@@ -116,14 +116,14 @@ export const getJobPostingById = async (
         {
           model: Employer,
           as: 'employer',
-          // --- MODIFIED: Select profile_picture from Employer directly ---
-          attributes: ['employer_id', 'user_id', 'profile_picture'],
+          attributes: ['employer_id', 'user_id'], // Remove profile_picture from here
           include: [
             {
               model: User,
               as: 'user',
-              // We only need the user's name from here now
-              attributes: ['user_id', 'fullname'],
+              // --- THIS IS THE FIX ---
+              // Add 'profile_picture' here so the frontend can find it at job.employer.user.profile_picture
+              attributes: ['user_id', 'fullname', 'profile_picture'],
             },
           ],
         },
