@@ -116,14 +116,16 @@ export const getJobPostingById = async (
         {
           model: Employer,
           as: 'employer',
-          attributes: ['employer_id', 'user_id'], // Remove profile_picture from here
+          attributes: ['employer_id', 'user_id'],
           include: [
             {
               model: User,
               as: 'user',
-              // --- THIS IS THE FIX ---
-              // Add 'profile_picture' here so the frontend can find it at job.employer.user.profile_picture
               attributes: ['user_id', 'fullname', 'profile_picture'],
+              
+              // --- THIS IS THE FIX ---
+              // Add this line to resolve the Sequelize/MySQL query issue for nested includes
+              duplicating: false, 
             },
           ],
         },
@@ -141,6 +143,7 @@ export const getJobPostingById = async (
     next(error);
   }
 };
+
 
 
 // --- Your other functions (update, delete, applyToJob, etc.) ---
