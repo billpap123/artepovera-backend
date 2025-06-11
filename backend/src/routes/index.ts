@@ -135,21 +135,8 @@ router.put('/portfolios/:id', authenticate, upload.single('image'), portfolioCon
 router.delete('/portfolios/:id', authenticate, portfolioController.deletePortfolioItem);
 
 
-// --- Job Posting routes ---
-router.post('/job-postings', authenticate, jobPostingController.createJobPosting);
-router.get('/job-postings/employer', authenticate, jobPostingController.getJobPostingsByEmployerId);
-router.get('/job-postings/:job_id', authenticate, jobPostingController.getJobPostingById);
-router.put('/job-postings/:job_id', authenticate, jobPostingController.updateJobPosting);
-router.delete('/job-postings/:job_id', authenticate, jobPostingController.deleteJobPosting);
-router.get('/job-postings', authenticate, jobPostingController.getAllJobPostings);
-router.post('/jobs/:jobId/apply', authenticate, jobPostingController.applyToJob);
 
-// Route for an artist to apply to a specific job posting
-router.post(
-  '/job-postings/:jobId/apply', // <<< This path structure uses :jobId as a parameter
-  authenticate,
-  jobPostingController.applyToJob
-);
+
 
 
 // Creates a chat between the logged-in user and a receiver
@@ -243,3 +230,13 @@ router.delete('/admin/portfolios/:portfolioId', authenticate, isAdmin, adminCont
 router.get('/admin/jobs', authenticate, isAdmin, adminController.getAllJobPostings);
 router.delete('/admin/jobs/:jobId', authenticate, isAdmin, adminController.deleteJobPostingByAdmin);
 export default router;
+
+router.post('/job-postings', authenticate, jobPostingController.createJobPosting);
+router.get('/job-postings', authenticate, jobPostingController.getAllJobPostings);
+router.get('/job-postings/my', authenticate, jobPostingController.getMyJobPostings); // For employers to see their own jobs
+router.get('/job-postings/employer', authenticate, jobPostingController.getJobPostingsByEmployerId);
+router.get('/job-postings/:job_id', authenticate, jobPostingController.getJobPostingById);
+router.put('/job-postings/:job_id', authenticate, jobPostingController.updateJobPosting);
+router.delete('/job-postings/:job_id', authenticate, jobPostingController.deleteJobPosting);
+router.post('/job-postings/:jobId/apply', authenticate, jobPostingController.applyToJob); // Route for an artist to apply
+
