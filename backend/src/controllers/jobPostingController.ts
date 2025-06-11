@@ -118,74 +118,76 @@ export const getMyJobPostings = async (req: CustomRequest, res: Response, next: 
  * @route POST /api/job-postings
  */
 export const createJobPosting = async (req: CustomRequest, res: Response, next: NextFunction): Promise<void> => {
-  // 1. Authorization: Ensure user is a logged-in employer
   const loggedInUserId = req.user?.id;
-  const loggedInUserType = req.user?.user_type;
-
-  if (!loggedInUserId) {
-      res.status(401).json({ message: "Unauthorized. Please log in." });
-      return;
-  }
-  
-  if (loggedInUserType !== 'Employer') {
-      res.status(403).json({ message: "Forbidden. Only employers can post jobs." });
+  if (!loggedInUserId || req.user?.user_type !== 'Employer') {
+      res.status(403).json({ message: "Forbidden: Only employers can post jobs." });
       return;
   }
 
   try {
       const employer = await Employer.findOne({ where: { user_id: loggedInUserId } });
       if (!employer) {
-          res.status(403).json({ message: "Forbidden. An employer profile is required to post a job." });
+          res.status(404).json({ message: "Employer profile not found." });
           return;
       }
 
-      // 2. Destructure and validate the request body
       const {
           title, category, description, location, presence,
           start_date, end_date, application_deadline,
-          payment_total, payment_is_monthly, payment_monthly_amount,
+          payment_total, payment_is_monthly, payment_monthly_amount, number_of_months,
           insurance, desired_keywords, requirements
       } = req.body;
 
-      if (!title || !category || !payment_total || !presence) {
-          res.status(400).json({ message: "Title, Category, Total Payment, and Presence are required fields." });
+      if (!title || !category || !presence) {
+          res.status(400).json({ message: "Title, Category, and Presence are required." });
           return;
       }
 
-      // 3. Find or Create the Category in the database
-      // This handles both existing categories and new ones submitted by users.
       const [categoryRecord] = await Category.findOrCreate({
           where: { name: category.trim() },
           defaults: { name: category.trim() },
       });
 
-      // 4. Create the new Job Posting with the validated data
+      let finalTotalPayment = 0;
+      if (payment_is_monthly) {
+        if (!payment_monthly_amount || !number_of_months || payment_monthly_amount <= 0 || number_of_months <= 0) {
+          res.status(400).json({ message: "Monthly wage and number of months are required for monthly payment."});
+          return;
+        }
+        finalTotalPayment = payment_monthly_amount * number_of_months;
+      } else {
+        if (!payment_total || payment_total <= 0) {
+          res.status(400).json({ message: "A valid total payment is required."});
+          return;
+        }
+        finalTotalPayment = payment_total;
+      }
+
       const newJobPosting = await JobPosting.create({
           employer_id: employer.employer_id,
           title,
-          category: categoryRecord.name, // Use the definitive name from the database record
-          description,
-          location,
-          presence,
+          category: categoryRecord.name,
+          description, location, presence,
           start_date: start_date || null,
           end_date: end_date || null,
           application_deadline: application_deadline || null,
-          payment_total,
-          payment_is_monthly: !!payment_is_monthly, // Ensure it's a boolean
+          payment_total: finalTotalPayment,
+          payment_is_monthly: !!payment_is_monthly,
           payment_monthly_amount: payment_is_monthly ? payment_monthly_amount : null,
+          number_of_months: payment_is_monthly ? number_of_months : null,
           insurance: insurance !== undefined ? insurance : null,
           desired_keywords,
           requirements,
       });
 
-      // 5. Send a success response
       res.status(201).json({ message: "Job posting created successfully!", jobPosting: newJobPosting });
 
   } catch (error) {
       console.error('Error creating job posting:', error);
-      next(error); // Pass any errors to your global error handler
+      next(error);
   }
 };
+
 
 export const getAllJobPostings = async (req: CustomRequest, res: Response, next: NextFunction) => {
   try {
@@ -284,33 +286,59 @@ export const getJobPostingById = async (
 * @route PUT /api/job-postings/:job_id
 */
 export const updateJobPosting = async (req: CustomRequest, res: Response, next: NextFunction): Promise<void> => {
-try {
-  const { job_id } = req.params;
-  const jobPosting = await JobPosting.findByPk(job_id);
+  try {
+      const { job_id } = req.params;
+      const jobPosting = await JobPosting.findByPk(job_id);
+      if (!jobPosting) {
+          // FIX: Removed 'return'
+          res.status(404).json({ message: 'Job posting not found' });
+          return;
+      }
+      
+      const employer = await Employer.findOne({ where: { user_id: req.user?.id } });
+      if (!employer || jobPosting.employer_id !== employer.employer_id) {
+          // FIX: Removed 'return'
+          res.status(403).json({ message: "Forbidden: You can only update your own job postings." });
+          return;
+      }
 
-  if (!jobPosting) {
-    res.status(404).json({ message: 'Job posting not found' });
-    return;
+      const {
+          payment_total, 
+          payment_is_monthly, 
+          payment_monthly_amount, 
+          number_of_months,
+          ...restOfBody
+      } = req.body;
+
+      let finalTotalPayment = 0;
+      if (payment_is_monthly) {
+          if (!payment_monthly_amount || !number_of_months || payment_monthly_amount <= 0 || number_of_months <= 0) {
+            res.status(400).json({ message: "Monthly wage and number of months are required."});
+            return;
+          }
+          finalTotalPayment = payment_monthly_amount * number_of_months;
+      } else {
+          if (!payment_total || payment_total <= 0) {
+            res.status(400).json({ message: "A valid total payment is required."});
+            return;
+          }
+          finalTotalPayment = payment_total;
+      }
+      
+      const updatedData = {
+          ...restOfBody,
+          payment_total: finalTotalPayment,
+          payment_is_monthly: !!payment_is_monthly,
+          payment_monthly_amount: payment_is_monthly ? payment_monthly_amount : null,
+          number_of_months: payment_is_monthly ? number_of_months : null,
+      };
+
+      await jobPosting.update(updatedData);
+      res.json(jobPosting);
+  } catch (error) {
+      next(error);
   }
-  
-  // Authorization Check: Ensure the person updating is the one who created it.
-  const employer = await Employer.findOne({ where: { user_id: req.user?.id } });
-  if (!employer || jobPosting.employer_id !== employer.employer_id) {
-      res.status(403).json({ message: "Forbidden: You can only update your own job postings." });
-      return;
-  }
-
-  // Update with all the new fields from the request body
-  const updatedData = req.body;
-  await jobPosting.update(updatedData);
-
-  res.json(jobPosting);
-} catch (error) {
-  console.error('Error updating job posting:', error);
-  next(error);
-}
 };
-
 /**
 * @description Delete a specific job posting.
 * @route DELETE /api/job-postings/:job_id

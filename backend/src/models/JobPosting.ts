@@ -1,6 +1,7 @@
+// src/models/JobPosting.ts
 import { Model, DataTypes, Optional } from 'sequelize';
 import sequelizeInstance from '../config/db';
-import Employer from './Employer'; // Make sure to import the Employer model
+import Employer from './Employer';
 
 // This interface defines all the properties a JobPosting instance will have
 export interface JobPostingAttributes {
@@ -17,13 +18,10 @@ export interface JobPostingAttributes {
   payment_total: number;
   payment_is_monthly?: boolean;
   payment_monthly_amount?: number | null;
+  number_of_months?: number | null; // <-- 1. ADDED HERE
   insurance?: boolean | null;
   desired_keywords?: string | null;
   requirements?: object | null;
-  
-  // --- THIS IS THE CRITICAL ADDITION ---
-  // This tells TypeScript that after an 'include' query,
-  // a JobPosting instance might have an 'employer' property.
   employer?: Employer;
 }
 
@@ -45,6 +43,7 @@ class JobPosting extends Model<JobPostingAttributes, JobPostingCreationAttribute
   public payment_total!: number;
   public payment_is_monthly!: boolean;
   public payment_monthly_amount!: number | null;
+  public number_of_months!: number | null; // <-- 2. ADDED HERE
   public insurance!: boolean | null;
   public desired_keywords!: string | null;
   public requirements!: object | null;
@@ -53,12 +52,10 @@ class JobPosting extends Model<JobPostingAttributes, JobPostingCreationAttribute
   public readonly created_at!: Date;
   public readonly updated_at!: Date;
 
-  // --- ALSO ADD THIS ASSOCIATION PROPERTY TO THE CLASS ---
+  // Association property
   public readonly employer?: Employer;
 }
 
-// The init() method remains exactly the same as you have it now.
-// It only defines the actual columns in the database table.
 JobPosting.init({
     job_id: {
         type: DataTypes.INTEGER.UNSIGNED,
@@ -81,6 +78,10 @@ JobPosting.init({
     payment_total: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
     payment_is_monthly: { type: DataTypes.BOOLEAN, defaultValue: false },
     payment_monthly_amount: { type: DataTypes.DECIMAL(10, 2), allowNull: true },
+    number_of_months: { // <-- 3. ADDED THIS DEFINITION
+        type: DataTypes.INTEGER,
+        allowNull: true,
+    },
     insurance: { type: DataTypes.BOOLEAN, allowNull: true },
     desired_keywords: { type: DataTypes.TEXT, allowNull: true },
     requirements: { type: DataTypes.JSON, allowNull: true },
