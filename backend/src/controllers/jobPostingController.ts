@@ -37,7 +37,7 @@ export const getMyApplications = async (req: CustomRequest, res: Response, next:
           include: [
               {
                   model: JobPosting,
-                  as: 'jobPosting', // Ensure this alias matches your model association
+                  as: 'jobPostingDetails', // This is correct
                   include: [
                       {
                           model: Employer,
@@ -52,20 +52,33 @@ export const getMyApplications = async (req: CustomRequest, res: Response, next:
                   ]
               }
           ],
-          order: [['application_date', 'DESC']] // Show the most recent applications first
+          order: [['application_date', 'DESC']]
       });
 
       if (!applications || applications.length === 0) {
-          res.status(200).json([]); // Return an empty array if no applications are found
+          res.status(200).json([]);
           return;
       }
+      
+      const reshapedApplications = applications.map(app => {
+        const appJSON = app.toJSON();
 
-      // 3. Send the applications to the client
-      res.status(200).json(applications);
+        // --- THIS IS THE FIX for the TypeScript error ---
+        // We cast appJSON to `any` to tell TypeScript we know 'jobPostingDetails' exists
+        // on this object at runtime, even if it's not in the base model interface.
+        return {
+          ...appJSON,
+          jobPosting: (appJSON as any).jobPostingDetails, // <-- Corrected Line
+          jobPostingDetails: undefined, 
+        };
+        // --- END OF FIX ---
+      });
+      
+      res.status(200).json(reshapedApplications);
 
   } catch (error) {
       console.error('Error fetching user applications:', error);
-      next(error); // Pass errors to the global error handler
+      next(error);
   }
 };
 
