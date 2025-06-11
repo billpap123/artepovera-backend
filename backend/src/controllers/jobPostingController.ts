@@ -10,6 +10,65 @@ import { UniqueConstraintError, Sequelize } from 'sequelize'; // The main Sequel
 import Category from '../models/Category'; // <-- 1. IMPORT THE NEW CATEGORY MODEL
 
 
+
+/**
+ * @description Fetches all job applications submitted by the currently logged-in artist.
+ * @route GET /api/my-applications
+ */
+export const getMyApplications = async (req: CustomRequest, res: Response, next: NextFunction): Promise<void> => {
+  // 1. Ensure a user is logged in and is an 'Artist'
+  const loggedInUserId = req.user?.id;
+  const userType = req.user?.user_type;
+
+  if (!loggedInUserId) {
+      res.status(401).json({ message: "Unauthorized. Please log in." });
+      return;
+  }
+
+  if (userType !== 'Artist') {
+      res.status(403).json({ message: "Forbidden. Only artists can view their applications." });
+      return;
+  }
+
+  try {
+      // 2. Fetch all applications for the logged-in user
+      const applications = await JobApplication.findAll({
+          where: { artist_user_id: loggedInUserId },
+          include: [
+              {
+                  model: JobPosting,
+                  as: 'jobPosting', // Ensure this alias matches your model association
+                  include: [
+                      {
+                          model: Employer,
+                          as: 'employer',
+                          attributes: ['profile_picture'],
+                          include: [{
+                              model: User,
+                              as: 'user',
+                              attributes: ['fullname']
+                          }]
+                      }
+                  ]
+              }
+          ],
+          order: [['application_date', 'DESC']] // Show the most recent applications first
+      });
+
+      if (!applications || applications.length === 0) {
+          res.status(200).json([]); // Return an empty array if no applications are found
+          return;
+      }
+
+      // 3. Send the applications to the client
+      res.status(200).json(applications);
+
+  } catch (error) {
+      console.error('Error fetching user applications:', error);
+      next(error); // Pass errors to the global error handler
+  }
+};
+
 /**
  * @description Creates a new, detailed job posting based on the new schema.
  * @route POST /api/job-postings

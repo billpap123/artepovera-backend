@@ -172,6 +172,8 @@ router.get(
   authenticate, 
   chatController.getChatHistory
 );
+// Route to get all applications for the logged-in user
+router.get('/my-applications', authenticate, jobPostingController.getMyApplications);
 
 // Gets all of the logged-in user's chats
 router.get(
