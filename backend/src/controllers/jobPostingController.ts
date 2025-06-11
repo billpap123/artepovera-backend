@@ -81,6 +81,37 @@ export const getMyApplications = async (req: CustomRequest, res: Response, next:
       next(error);
   }
 };
+export const getMyJobPostings = async (req: CustomRequest, res: Response, next: NextFunction): Promise<void> => {
+  try {
+      const loggedInUserId = req.user?.id;
+      const loggedInUserType = req.user?.user_type;
+
+      // Authorization: Ensure the user is a logged-in employer
+      if (!loggedInUserId || loggedInUserType !== 'Employer') {
+          res.status(403).json({ message: "Forbidden: You must be an employer to view this page." });
+          return;
+      }
+
+      // Find the employer profile linked to the user ID
+      const employer = await Employer.findOne({ where: { user_id: loggedInUserId } });
+      if (!employer) {
+          res.status(404).json({ message: "Employer profile not found." });
+          return;
+      }
+
+      // Fetch all jobs associated with that employer_id
+      const jobPostings = await JobPosting.findAll({
+          where: { employer_id: employer.employer_id },
+          order: [['created_at', 'DESC']] // Show the most recent jobs first
+      });
+
+      res.status(200).json(jobPostings);
+
+  } catch (error) {
+      console.error("Error fetching employer's job postings:", error);
+      next(error); // Pass error to your global handler
+  }
+};
 
 /**
  * @description Creates a new, detailed job posting based on the new schema.

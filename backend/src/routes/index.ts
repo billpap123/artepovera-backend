@@ -181,6 +181,11 @@ router.get(
   authenticate, 
   chatController.fetchUserChats // Use the new function name
 );
+router.get(
+  '/job-postings/my', // A dedicated, secure route
+  authenticate,       // Ensures user is logged in
+  jobPostingController.getMyJobPostings
+);
 
 
 router.post('/reviews', authenticate, reviewController.submitReview);
