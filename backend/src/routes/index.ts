@@ -31,6 +31,12 @@ import {
 import { upload } from '../middleware/multerConfig'; // Correct import path
 // Import associations to initialize Sequelize relationships (keep if needed)
 import '../models/associations';
+import { 
+  createArtistComment, 
+  getCommentsForUserProfile, 
+  checkExistingComment,
+  getAverageSupportRating // <-- ADD THIS IMPORT
+} from '../controllers/artistCommentController';
 
 // ***** REMOVED: Ensure the "uploads" folder exists *****
 
@@ -58,6 +64,12 @@ router.post(
   authenticate, // Ensures user is logged in
   artistSupportController.toggleSupport
 );
+router.get(
+  '/users/:userId/average-support',
+  getAverageSupportRating
+);
+
+
 
 // Route to get support status and count for a user (profile user ID in params)
 // Applying to /api/users/:userId/support-status
