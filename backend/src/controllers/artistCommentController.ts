@@ -5,6 +5,7 @@ import ArtistComment from '../models/ArtistComment';
 import User from '../models/User';
 import Artist from '../models/Artist';
 import { UniqueConstraintError, Sequelize } from 'sequelize';
+import  Employer from '../models/Employer';
 
 /**
  * --- UPDATED ---
@@ -83,29 +84,60 @@ export const createArtistComment = async (req: CustomRequest, res: Response): Pr
 export const getCommentsForUserProfile = async (req: Request, res: Response): Promise<void> => {
     try {
         const profileUserId = parseInt(req.params.userId, 10);
-        if (isNaN(profileUserId)) { res.status(400).json({ message: 'Invalid user ID format.' }); return; }
+        if (isNaN(profileUserId)) { 
+            res.status(400).json({ message: 'Invalid user ID format.' }); 
+            return; 
+        }
 
-        const comments = await ArtistComment.findAll({
+        const commentsInstances = await ArtistComment.findAll({
             where: { profile_user_id: profileUserId },
+            // --- THIS IS THE FIX ---
+            // This 'include' block now matches the one in your 'create' function.
+            // It fetches the commenter's User model, AND their nested Artist/Employer profile
+            // to get the profile picture correctly.
             include: [{
                 model: User,
                 as: 'commenterArtist',
-                attributes: ['user_id', 'fullname', 'user_type', 'profile_picture']
+                attributes: ['user_id', 'fullname', 'user_type'],
+                include: [
+                    { model: Artist, as: 'artistProfile', attributes: ['profile_picture'], required: false },
+                    // Including Employer profile as well for completeness, though less likely for this feature
+                    { model: Employer, as: 'employerProfile', attributes: ['profile_picture'], required: false }
+                ]
             }],
             order: [['created_at', 'DESC']],
         });
 
-        const formattedComments = comments.map(comment => {
-            const plainComment = comment.get({ plain: true });
-            // Manually structure the commenter data to match what the frontend expects
+        // This detailed mapping logic is now necessary to handle the nested data correctly.
+        const formattedComments = commentsInstances.map(commentInstance => {
+            const commenterUser = commentInstance.commenterArtist;
+            let formattedCommenter = null;
+
+            if (commenterUser) {
+                const profilePic = (commenterUser.user_type === 'Artist' && commenterUser.artistProfile)
+                    ? commenterUser.artistProfile.profile_picture
+                    : null; // Or handle employer case if needed
+
+                formattedCommenter = {
+                    user_id: commenterUser.user_id,
+                    fullname: commenterUser.fullname,
+                    user_type: commenterUser.user_type,
+                    profile_picture: profilePic,
+                };
+            }
+            
             return {
-                ...plainComment,
-                commenter: plainComment.commenterArtist,
-                created_at: comment.createdAt, // Ensure correct date format
-                updated_at: comment.updatedAt,
+                comment_id: commentInstance.comment_id,
+                profile_user_id: commentInstance.profile_user_id,
+                commenter_user_id: commentInstance.commenter_user_id,
+                comment_text: commentInstance.comment_text,
+                support_rating: commentInstance.support_rating,
+                created_at: commentInstance.createdAt,
+                updated_at: commentInstance.updatedAt,
+                commenter: formattedCommenter, // Use the newly formatted object
             };
         });
-        
+
         res.status(200).json({ comments: formattedComments });
 
     } catch (error: any) {
