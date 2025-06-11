@@ -14,11 +14,7 @@ import  Employer from '../models/Employer';
 export const createArtistComment = async (req: CustomRequest, res: Response): Promise<void> => {
     const loggedInUserId = req.user?.id;
     const loggedInUserType = req.user?.user_type;
-    
-    // --- THIS IS THE FIX ---
-    // This line was missing. We need to define profileUserId to use it in the validation checks below.
     const profileUserId = parseInt(req.params.userId, 10);
-    
     const { comment_text, support_rating } = req.body;
 
     // --- Validations ---
@@ -30,7 +26,6 @@ export const createArtistComment = async (req: CustomRequest, res: Response): Pr
         res.status(400).json({ message: "A valid comment and a support rating (1-5) are required." });
         return;
     }
-    // This check now works correctly because profileUserId is defined
     if (loggedInUserId === profileUserId) {
         res.status(400).json({ message: "Artists cannot comment on their own profile." });
         return;
@@ -58,21 +53,33 @@ export const createArtistComment = async (req: CustomRequest, res: Response): Pr
             support_rating: support_rating,
         });
 
+        // --- THIS IS THE FIX ---
+        // The include logic now correctly fetches the nested Artist profile to get the picture,
+        // matching the logic in your `getCommentsForUserProfile` function.
         const createdCommentWithDetails = await ArtistComment.findByPk(newCommentInstance.comment_id, {
             include: [{
                 model: User,
                 as: 'commenterArtist',
-                attributes: ['user_id', 'fullname', 'user_type', 'profile_picture'],
+                attributes: ['user_id', 'fullname', 'user_type'], // We get basic user info here
+                include: [ // We go one level deeper to get the picture
+                    { model: Artist, as: 'artistProfile', attributes: ['profile_picture'], required: false }
+                ]
             }]
         });
+        // --- END FIX ---
 
         res.status(201).json({ message: "Viewpoint posted successfully!", comment: createdCommentWithDetails });
 
     } catch (error: any) {
+        if (error instanceof UniqueConstraintError) {
+            res.status(409).json({ message: "You have already posted a viewpoint on this profile." });
+            return;
+        }
         console.error("Error creating artist comment:", error);
         res.status(500).json({ message: "Failed to post viewpoint." });
     }
 };
+
 
 /**
  * --- UPDATED ---
