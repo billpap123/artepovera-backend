@@ -12,12 +12,13 @@ import  Employer from '../models/Employer';
  * Creates a new artistic viewpoint, now including a mandatory support_rating.
  */
 export const createArtistComment = async (req: CustomRequest, res: Response): Promise<void> => {
+    // 1. Get all necessary data from the request
     const loggedInUserId = req.user?.id;
     const loggedInUserType = req.user?.user_type;
     const profileUserId = parseInt(req.params.userId, 10);
     const { comment_text, support_rating } = req.body;
 
-    // --- Validations ---
+    // 2. Perform all necessary validations
     if (!loggedInUserId || loggedInUserType !== 'Artist') {
         res.status(403).json({ message: "Forbidden. Only artists can post artistic viewpoints." });
         return;
@@ -46,6 +47,7 @@ export const createArtistComment = async (req: CustomRequest, res: Response): Pr
             return;
         }
 
+        // 3. Create the new comment in the database
         const newCommentInstance = await ArtistComment.create({
             profile_user_id: profileUserId,
             commenter_user_id: loggedInUserId,
@@ -53,22 +55,40 @@ export const createArtistComment = async (req: CustomRequest, res: Response): Pr
             support_rating: support_rating,
         });
 
-        // --- THIS IS THE FIX ---
-        // The include logic now correctly fetches the nested Artist profile to get the picture,
-        // matching the logic in your `getCommentsForUserProfile` function.
+        // 4. Fetch the full, detailed version of the comment you just created
         const createdCommentWithDetails = await ArtistComment.findByPk(newCommentInstance.comment_id, {
+            // This include logic now correctly fetches the nested profile for the picture
             include: [{
                 model: User,
                 as: 'commenterArtist',
-                attributes: ['user_id', 'fullname', 'user_type'], // We get basic user info here
-                include: [ // We go one level deeper to get the picture
+                attributes: ['user_id', 'fullname', 'user_type'],
+                include: [
                     { model: Artist, as: 'artistProfile', attributes: ['profile_picture'], required: false }
                 ]
             }]
         });
-        // --- END FIX ---
 
-        res.status(201).json({ message: "Viewpoint posted successfully!", comment: createdCommentWithDetails });
+        if (!createdCommentWithDetails) {
+            throw new Error("Failed to fetch newly created comment details.");
+        }
+
+        // 5. Manually format the object to have the exact shape the frontend expects
+        const formattedComment = {
+            comment_id: createdCommentWithDetails.comment_id,
+            comment_text: createdCommentWithDetails.comment_text,
+            support_rating: createdCommentWithDetails.support_rating,
+            created_at: createdCommentWithDetails.createdAt,
+            commenter: createdCommentWithDetails.commenterArtist ? {
+                user_id: createdCommentWithDetails.commenterArtist.user_id,
+                fullname: createdCommentWithDetails.commenterArtist.fullname,
+                user_type: createdCommentWithDetails.commenterArtist.user_type,
+                // Get the picture from the nested artistProfile
+                profile_picture: createdCommentWithDetails.commenterArtist.artistProfile?.profile_picture || null,
+            } : null,
+        };
+
+        // 6. Send the new, PERFECTLY formatted comment back to the frontend
+        res.status(201).json({ message: "Viewpoint posted successfully!", comment: formattedComment });
 
     } catch (error: any) {
         if (error instanceof UniqueConstraintError) {
