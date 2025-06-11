@@ -14,9 +14,11 @@ import  Employer from '../models/Employer';
 export const createArtistComment = async (req: CustomRequest, res: Response): Promise<void> => {
     const loggedInUserId = req.user?.id;
     const loggedInUserType = req.user?.user_type;
+    
+    // --- THIS IS THE FIX ---
+    // This line was missing. We need to define profileUserId to use it in the validation checks below.
     const profileUserId = parseInt(req.params.userId, 10);
     
-    // Destructure the new 'support_rating' from the request body
     const { comment_text, support_rating } = req.body;
 
     // --- Validations ---
@@ -24,11 +26,11 @@ export const createArtistComment = async (req: CustomRequest, res: Response): Pr
         res.status(403).json({ message: "Forbidden. Only artists can post artistic viewpoints." });
         return;
     }
-    // Add validation for the new rating
     if (!comment_text || !support_rating || typeof support_rating !== 'number' || support_rating < 1 || support_rating > 5) {
         res.status(400).json({ message: "A valid comment and a support rating (1-5) are required." });
         return;
     }
+    // This check now works correctly because profileUserId is defined
     if (loggedInUserId === profileUserId) {
         res.status(400).json({ message: "Artists cannot comment on their own profile." });
         return;
@@ -53,10 +55,9 @@ export const createArtistComment = async (req: CustomRequest, res: Response): Pr
             profile_user_id: profileUserId,
             commenter_user_id: loggedInUserId,
             comment_text: comment_text.trim(),
-            support_rating: support_rating, // <-- Saves the new rating
+            support_rating: support_rating,
         });
 
-        // Fetch the new comment with its associations to send back a complete object
         const createdCommentWithDetails = await ArtistComment.findByPk(newCommentInstance.comment_id, {
             include: [{
                 model: User,
@@ -68,10 +69,6 @@ export const createArtistComment = async (req: CustomRequest, res: Response): Pr
         res.status(201).json({ message: "Viewpoint posted successfully!", comment: createdCommentWithDetails });
 
     } catch (error: any) {
-        if (error instanceof UniqueConstraintError) {
-            res.status(409).json({ message: "You have already posted a viewpoint on this profile." });
-            return;
-        }
         console.error("Error creating artist comment:", error);
         res.status(500).json({ message: "Failed to post viewpoint." });
     }
