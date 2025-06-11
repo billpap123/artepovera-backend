@@ -4,23 +4,28 @@ import { CustomRequest } from '../middleware/authMiddleware';
 import ArtistComment from '../models/ArtistComment';
 import User from '../models/User';
 import Artist from '../models/Artist';
-import Employer from '../models/Employer';
-import { UniqueConstraintError } from 'sequelize'; // Import for better error handling
+import { UniqueConstraintError, Sequelize } from 'sequelize';
 
-
+/**
+ * --- UPDATED ---
+ * Creates a new artistic viewpoint, now including a mandatory support_rating.
+ */
 export const createArtistComment = async (req: CustomRequest, res: Response): Promise<void> => {
     const loggedInUserId = req.user?.id;
     const loggedInUserType = req.user?.user_type;
     const profileUserId = parseInt(req.params.userId, 10);
-    const { comment_text } = req.body;
+    
+    // Destructure the new 'support_rating' from the request body
+    const { comment_text, support_rating } = req.body;
 
     // --- Validations ---
     if (!loggedInUserId || loggedInUserType !== 'Artist') {
         res.status(403).json({ message: "Forbidden. Only artists can post artistic viewpoints." });
         return;
     }
-    if (isNaN(profileUserId) || !comment_text || typeof comment_text !== 'string' || comment_text.trim() === "") {
-        res.status(400).json({ message: "Invalid input." });
+    // Add validation for the new rating
+    if (!comment_text || !support_rating || typeof support_rating !== 'number' || support_rating < 1 || support_rating > 5) {
+        res.status(400).json({ message: "A valid comment and a support rating (1-5) are required." });
         return;
     }
     if (loggedInUserId === profileUserId) {
@@ -47,25 +52,18 @@ export const createArtistComment = async (req: CustomRequest, res: Response): Pr
             profile_user_id: profileUserId,
             commenter_user_id: loggedInUserId,
             comment_text: comment_text.trim(),
+            support_rating: support_rating, // <-- Saves the new rating
         });
 
-        // --- THIS IS THE FIX ---
-        // After creating, immediately fetch the new comment again, this time with its associations.
-        // This ensures the frontend gets the commenter's name and picture for an instant update.
+        // Fetch the new comment with its associations to send back a complete object
         const createdCommentWithDetails = await ArtistComment.findByPk(newCommentInstance.comment_id, {
             include: [{
                 model: User,
-                as: 'commenterArtist', // This gets the User who commented
-                attributes: ['user_id', 'fullname', 'user_type'],
-                include: [ // This gets their profile picture from their specific profile
-                    { model: Artist, as: 'artistProfile', attributes: ['profile_picture'], required: false },
-                    { model: Employer, as: 'employerProfile', attributes: ['profile_picture'], required: false }
-                ]
+                as: 'commenterArtist',
+                attributes: ['user_id', 'fullname', 'user_type', 'profile_picture'],
             }]
         });
-        // --- END FIX ---
 
-        // Now, send the complete, detailed comment object back to the frontend
         res.status(201).json({ message: "Viewpoint posted successfully!", comment: createdCommentWithDetails });
 
     } catch (error: any) {
@@ -77,60 +75,37 @@ export const createArtistComment = async (req: CustomRequest, res: Response): Pr
         res.status(500).json({ message: "Failed to post viewpoint." });
     }
 };
+
+/**
+ * --- UPDATED ---
+ * Fetches all comments for a user, now including the support_rating for each.
+ */
 export const getCommentsForUserProfile = async (req: Request, res: Response): Promise<void> => {
     try {
         const profileUserId = parseInt(req.params.userId, 10);
         if (isNaN(profileUserId)) { res.status(400).json({ message: 'Invalid user ID format.' }); return; }
 
-        const profileUser = await User.findByPk(profileUserId);
-        if (!profileUser) { res.status(404).json({ message: 'Profile user not found.' }); return; }
-
-        const commentsInstances = await ArtistComment.findAll({
+        const comments = await ArtistComment.findAll({
             where: { profile_user_id: profileUserId },
             include: [{
                 model: User,
                 as: 'commenterArtist',
-                attributes: ['user_id', 'fullname', 'user_type'],
-                include: [
-                    { model: Artist, as: 'artistProfile', attributes: ['profile_picture'], required: false },
-                    { model: Employer, as: 'employerProfile', attributes: ['profile_picture'], required: false }
-                ]
+                attributes: ['user_id', 'fullname', 'user_type', 'profile_picture']
             }],
             order: [['created_at', 'DESC']],
         });
 
-        const formattedComments = commentsInstances.map(commentInstance => {
-            const commenterUserSequelizeInstance = commentInstance.commenterArtist;
-            let formattedCommenterData: any = null;
-
-            if (commenterUserSequelizeInstance) {
-                let profilePic = null;
-                if (commenterUserSequelizeInstance.user_type === 'Artist' && commenterUserSequelizeInstance.artistProfile) {
-                    profilePic = commenterUserSequelizeInstance.artistProfile.profile_picture;
-                } else if (commenterUserSequelizeInstance.user_type === 'Employer' && commenterUserSequelizeInstance.employerProfile) {
-                    profilePic = commenterUserSequelizeInstance.employerProfile.profile_picture;
-                }
-                formattedCommenterData = {
-                    user_id: commenterUserSequelizeInstance.user_id,
-                    fullname: commenterUserSequelizeInstance.fullname,
-                    user_type: commenterUserSequelizeInstance.user_type,
-                    profile_picture: profilePic || null
-                };
-            }
-            
-            const plainCommentBase = commentInstance.get({ plain: true });
-
+        const formattedComments = comments.map(comment => {
+            const plainComment = comment.get({ plain: true });
+            // Manually structure the commenter data to match what the frontend expects
             return {
-                comment_id: plainCommentBase.comment_id,
-                profile_user_id: plainCommentBase.profile_user_id,
-                commenter_user_id: plainCommentBase.commenter_user_id,
-                comment_text: plainCommentBase.comment_text,
-                created_at: commentInstance.createdAt ? commentInstance.createdAt.toISOString() : null,
-                updated_at: commentInstance.updatedAt ? commentInstance.updatedAt.toISOString() : null,
-                commenter: formattedCommenterData,
+                ...plainComment,
+                commenter: plainComment.commenterArtist,
+                created_at: comment.createdAt, // Ensure correct date format
+                updated_at: comment.updatedAt,
             };
         });
-
+        
         res.status(200).json({ comments: formattedComments });
 
     } catch (error: any) {
@@ -139,18 +114,51 @@ export const getCommentsForUserProfile = async (req: Request, res: Response): Pr
     }
 };
 
-export const checkExistingComment = async (req: CustomRequest, res: Response): Promise<void> => {
+/**
+ * --- NEW FUNCTION ---
+ * Calculates the average support rating and total count for a given artist profile.
+ */
+export const getAverageSupportRating = async (req: Request, res: Response): Promise<void> => {
     try {
-        const commenterId = req.user?.id; // Get ID from authenticated token
         const profileUserId = parseInt(req.params.userId, 10);
-
-        if (!commenterId) {
-            // If there's no logged-in user, they haven't commented.
-            // Sending hasCommented: false is safe.
-            res.status(200).json({ hasCommented: false });
+        if (isNaN(profileUserId)) {
+            res.status(400).json({ message: 'Invalid user ID.' });
             return;
         }
 
+        const result: any = await ArtistComment.findOne({
+            where: { profile_user_id: profileUserId },
+            attributes: [
+                [Sequelize.fn('AVG', Sequelize.col('support_rating')), 'averageRating'],
+                [Sequelize.fn('COUNT', Sequelize.col('comment_id')), 'viewpointCount']
+            ],
+            raw: true,
+        });
+
+        const averageRating = result && result.averageRating ? parseFloat(parseFloat(result.averageRating).toFixed(1)) : null;
+        const viewpointCount = result && result.viewpointCount ? parseInt(result.viewpointCount, 10) : 0;
+        
+        res.status(200).json({ averageRating, viewpointCount });
+
+    } catch (error: any) {
+        console.error('Error fetching average support rating:', error);
+        res.status(500).json({ message: 'Failed to fetch average support rating.' });
+    }
+};
+
+/**
+ * --- UNCHANGED ---
+ * Checks if the logged-in user has already commented on a specific profile.
+ */
+export const checkExistingComment = async (req: CustomRequest, res: Response): Promise<void> => {
+    try {
+        const commenterId = req.user?.id;
+        const profileUserId = parseInt(req.params.userId, 10);
+
+        if (!commenterId) {
+            res.status(200).json({ hasCommented: false });
+            return;
+        }
         if (isNaN(profileUserId)) {
             res.status(400).json({ message: "Invalid profile user ID." });
             return;
@@ -163,7 +171,6 @@ export const checkExistingComment = async (req: CustomRequest, res: Response): P
             }
         });
 
-        // Send back true if a comment was found, false otherwise
         res.status(200).json({ hasCommented: !!comment });
 
     } catch (error: any) {

@@ -11,6 +11,10 @@ export interface ArtistCommentAttributes {
   comment_text: string;
   // createdAt and updatedAt are managed by Sequelize via `timestamps: true`,
   // so they are not typically part of this interface for creation/update purposes.
+  support_rating: number; // <-- 1. ADDED HERE
+  commenterArtist?: User;
+  commentedProfileUser?: User;
+
 }
 
 // Interface for attributes passed to ArtistComment.create()
@@ -22,6 +26,7 @@ class ArtistComment extends Model<ArtistCommentAttributes, ArtistCommentCreation
   public profile_user_id!: number;
   public commenter_user_id!: number;
   public comment_text!: string;
+  public support_rating!: number; // <-- 2. ADDED HERE
 
   // --- STANDARD SEQUELIZE INSTANCE PROPERTIES (camelCase) ---
   // These are automatically added by Sequelize if timestamps: true in init options.
@@ -66,6 +71,15 @@ ArtistComment.init(
       type: DataTypes.TEXT,
       allowNull: false,
     },
+       // --- 3. ADDED THIS NEW COLUMN DEFINITION ---
+       support_rating: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        validate: {
+            min: 1, // Ensures the rating is at least 1
+            max: 5  // Ensures the rating is at most 5
+        }
+    }
     // `created_at` and `updated_at` columns are automatically defined by Sequelize
     // in the database due to `timestamps: true` and named with snake_case
     // due to `underscored: true`. You do NOT define them here in the attributes block.
