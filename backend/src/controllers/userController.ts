@@ -93,9 +93,8 @@ export const toggleLike = async (req: CustomRequest, res: Response): Promise<voi
         
         const chatLink = `${frontendUrl}/chat?open=${chat.chat_id}`;
         
-        const messageForOtherUser = `You have a new match with ${loggedInUser.fullname}! <a href="${chatLink}" target="_blank" rel="noopener noreferrer">Start Chatting</a>`;
-        const messageForLoggedInUser = `You matched with ${otherUser.fullname}! <a href="${chatLink}" target="_blank" rel="noopener noreferrer">Start Chatting</a>`;
-
+        const messageForOtherUser = `You have a new match with ${loggedInUser.fullname}! <a href="${chatLink}" rel="noopener noreferrer">Start Chatting</a>`;
+        const messageForLoggedInUser = `You matched with ${otherUser.fullname}! <a href="${chatLink}" rel="noopener noreferrer">Start Chatting</a>`;
         // Create notifications for both users
         await Notification.create({ user_id: likedUserId, message: messageForOtherUser, sender_id: loggedInUserId });
         
