@@ -78,17 +78,14 @@ export const sendMessage = async (req: CustomRequest, res: Response): Promise<vo
 
         await chat.save();
         
-        // --- ADD THIS BLOCK ---
-        // Get the io instance we attached to the app in server.ts
-        const io = req.app.get('io'); 
+        // --- THIS IS THE UPDATED LINE ---
+        // We now get 'io' directly from the request object where our middleware put it.
+        const io = (req as any).io;
         
-        // Define the room name based on the chat's ID
+        // This part will now work correctly
         const chatRoom = newMessage.chat_id.toString(); 
-
-        // Emit a 'new_message' event ONLY to clients in that specific chat room.
-        // We send the full message object so the frontend has all the info it needs.
         io.to(chatRoom).emit('new_message', newMessage.toJSON());
-        // --- END OF NEW BLOCK ---
+        // --- END OF CHANGE ---
 
         res.status(201).json({ message: 'Message sent successfully', data: newMessage });
     } catch (error) {
@@ -96,6 +93,7 @@ export const sendMessage = async (req: CustomRequest, res: Response): Promise<vo
         res.status(500).json({ message: 'Internal server error.' });
     }
 };
+
 
 
 /**

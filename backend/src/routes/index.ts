@@ -1,6 +1,8 @@
 // src/routes/index.ts
 import { Router } from 'express';
 // REMOVED: import fs from 'fs'; // No longer needed
+import { Server } from 'socket.io'; // <-- Add this import
+
 // REMOVED: import path from 'path'; // No longer needed unless used elsewhere in routes
 import * as userController from '../controllers/userController';
 import * as artistController from '../controllers/artistController'; // Ensure imported
@@ -40,7 +42,16 @@ import {
 
 // ***** REMOVED: Ensure the "uploads" folder exists *****
 
-const router = Router();
+export default (io: Server) => {
+  // 1. Declare the router ONCE inside the function.
+  const router = Router();
+
+  // 2. Add a small middleware to attach 'io' to every request object.
+  router.use((req, res, next) => {
+      (req as any).io = io;
+      next();
+  });
+
 
 // This creates the endpoint: GET /api/categories/
 router.get('/', getAllCategories);
@@ -229,7 +240,6 @@ router.delete('/admin/portfolios/:portfolioId', authenticate, isAdmin, adminCont
 
 router.get('/admin/jobs', authenticate, isAdmin, adminController.getAllJobPostings);
 router.delete('/admin/jobs/:jobId', authenticate, isAdmin, adminController.deleteJobPostingByAdmin);
-export default router;
 
 router.post('/job-postings', authenticate, jobPostingController.createJobPosting);
 router.get('/job-postings', authenticate, jobPostingController.getAllJobPostings);
@@ -239,4 +249,6 @@ router.get('/job-postings/:job_id', authenticate, jobPostingController.getJobPos
 router.put('/job-postings/:job_id', authenticate, jobPostingController.updateJobPosting);
 router.delete('/job-postings/:job_id', authenticate, jobPostingController.deleteJobPosting);
 router.post('/job-postings/:jobId/apply', authenticate, jobPostingController.applyToJob); // Route for an artist to apply
+return router;
 
+};
