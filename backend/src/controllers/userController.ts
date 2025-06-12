@@ -60,7 +60,7 @@ export const toggleLike = async (req: CustomRequest, res: Response): Promise<voi
  const likerProfileLink = `${frontendUrl}/user-profile/${loggedInUserId}`;
         
  // 3. Create the new notification message with the embedded HTML link.
- const notificationMessage = `<a href="${likerProfileLink}" target="_blank" rel="noopener noreferrer">${loggedInUser.fullname || 'Someone'}</a> liked your profile.`;
+ const notificationMessage = `<a href="${likerProfileLink}"  rel="noopener noreferrer">${loggedInUser.fullname || 'Someone'}</a> liked your profile.`;
 
  // 4. Create the notification using the new message.
  await Notification.create({

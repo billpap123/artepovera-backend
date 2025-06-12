@@ -489,7 +489,7 @@ export const applyToJob = async (
 const frontendBaseUrl =  'https://artepovera2.vercel.app'; // Fallback to your live URL
 const artistProfileLink = `${frontendBaseUrl}/user-profile/${loggedInUserId}`; // Use User ID of the artist
 
-const notificationMessage = `${artistName} has applied for your job posting titled "${jobPosting.title}". <a href="${artistProfileLink}" target="_blank" rel="noopener noreferrer">View profile</a>`;
+const notificationMessage = `${artistName} has applied for your job posting titled "${jobPosting.title}". <a href="${artistProfileLink}"  rel="noopener noreferrer">View profile</a>`;
 // --- END CORRECTION ---
 
 await Notification.create({
