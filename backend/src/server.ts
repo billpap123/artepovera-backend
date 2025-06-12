@@ -1,50 +1,41 @@
 // src/server.ts
 import express from 'express';
 import sequelize from './config/db';
-import routes from './routes/index'; // Imports the configured router
+import routes from './routes/index';
 import dotenv from 'dotenv';
 import cors from 'cors';
-// REMOVED: import multer, { FileFilterCallback } from 'multer'; // Multer is now configured in middleware/multerConfig.ts
-import path from 'path'; // Keep path if it might be used by a dependency or other part of your app
+import path from 'path';
 import helmet from 'helmet';
-import { v2 as cloudinary } from 'cloudinary'; // Import Cloudinary SDK
+import { v2 as cloudinary } from 'cloudinary';
 
-// Load environment variables from .env
+// --- ADD THIS ---
+import http from 'http'; // 1. Import Node's built-in HTTP module
+import { Server } from 'socket.io'; // 2. Import the Server class from Socket.IO
+
+// Load environment variables
 dotenv.config();
 
-// Import models and associations (Sequelize relationships)
-// This line ensures all models are registered and associations are set up.
-import './models/associations'; // Ensure this path is correct and it imports all models and then sets up associations
+// Import models and associations
+import './models/associations';
 
 // --- Cloudinary Configuration ---
-// Ensure Cloudinary is configured early
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
-  secure: true, // Use https URLs
+  secure: true,
 });
 console.log('[Cloudinary] SDK Configured. Cloud Name:', process.env.CLOUDINARY_CLOUD_NAME ? 'OK' : 'MISSING!');
-// --- End Cloudinary Configuration ---
 
 const app = express();
 
-// --------------------------------------
-// REMOVED: Disk path calculation, fs.mkdirSync logic, and related debug logs
-// --------------------------------------
-
-// --------------------------------------
-// MODIFIED: Database Connection Check (removed sync)
-// --------------------------------------
+// Database Connection Check
 sequelize
   .authenticate()
   .then(() => console.log('Database connection established successfully.'))
   .catch((error) => console.error('Unable to connect to the database:', error.message));
-// REMOVED: sequelize.sync({ alter: true }) block
 
-// --------------------------------------
-// Helmet configuration for security
-// --------------------------------------
+// Helmet configuration
 app.use(
   helmet({
     crossOriginEmbedderPolicy: false,
@@ -52,32 +43,16 @@ app.use(
   })
 );
 
-// --------------------------------------
-// REMOVED: URL fixing middleware for '/uploads/uploads'
-// --------------------------------------
-
-// --------------------------------------
-// REMOVED: express.static for '/uploads' and related debug logs
-// --------------------------------------
-
-// --------------------------------------
 // CORS CONFIGURATION
-// --------------------------------------
 const allowedOrigins = [
   'http://localhost:3000',
   'https://artepovera2.vercel.app',
-  // Add any other specific Vercel preview URLs if needed
-  // Or for more flexible preview URL handling:
-  // /https:\/\/artepovera2-.*-vasilis-projects-01b75e68\.vercel\.app/ // Regex example
 ];
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps or curl) OR from allowed origins
-      // For regex, you'd need a different check:
-      // if (!origin || allowedOrigins.some(pattern => typeof pattern === 'string' ? pattern === origin : pattern.test(origin))) {
-      if (!origin || allowedOrigins.includes(origin)) { // Simple check for now
+      if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
         console.warn(`[CORS] Blocked origin: ${origin}`);
@@ -89,28 +64,54 @@ app.use(
   })
 );
 
-// Allow preflight requests for all routes
 app.options('*', cors());
 
-// --------------------------------------
-// REMOVED: MULTER SETUP (This now lives in src/middleware/multerConfig.ts)
-// --------------------------------------
-
-// --------------------------------------
 // Parse JSON and URL-encoded bodies
-// --------------------------------------
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// --------------------------------------
+
+// --- SOCKET.IO INTEGRATION --- (ADD THIS ENTIRE BLOCK)
+
+// 3. Create an HTTP server instance from your Express app
+const server = http.createServer(app);
+
+// 4. Initialize Socket.IO and attach it to the HTTP server
+const io = new Server(server, {
+    cors: {
+        origin: allowedOrigins, // Use the same origins as your main CORS config
+        methods: ["GET", "POST"]
+    }
+});
+
+// 5. Make the 'io' instance globally accessible to your controllers
+// This allows you to call `req.app.get('io')` inside your route handlers
+(app as any).io = io; 
+
+// 6. Set up the connection handler for new clients
+io.on('connection', (socket) => {
+    console.log(`🔌 [Socket.IO] User connected: ${socket.id}`);
+
+    // Event for a user to join a specific chat room
+    socket.on('join_chat', (chatId: string) => {
+        socket.join(chatId);
+        console.log(`[Socket.IO] User ${socket.id} joined chat room: ${chatId}`);
+    });
+
+    socket.on('disconnect', () => {
+        console.log(`🔥 [Socket.IO] User disconnected: ${socket.id}`);
+    });
+});
+
+// --- END OF SOCKET.IO INTEGRATION ---
+
+
 // USE YOUR MAIN API ROUTES
-// --------------------------------------
+// This MUST come AFTER you've attached `io` to the app object
 app.use('/api', routes);
 console.log('[SETUP] API routes mounted under /api');
 
-// --------------------------------------
 // ERROR HANDLING
-// --------------------------------------
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error("[ERROR] Unhandled error:", err.stack);
   res.status(err.status || 500).json({
@@ -119,16 +120,11 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
    });
 });
 
-// --------------------------------------
-// REMOVED: export { upload }; // This was moved to src/middleware/multerConfig.ts
-// --------------------------------------
-
-// --------------------------------------
 // START THE SERVER
-// --------------------------------------
 const PORT = process.env.PORT || 5001;
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
 
-// REMOVED: Redundant export { upload };
+// --- CHANGE THIS ---
+// 7. Start the HTTP server, not the Express app directly
+server.listen(PORT, () => {
+  console.log(`🚀 Server is running on port ${PORT}`);
+});

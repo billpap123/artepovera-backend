@@ -62,13 +62,11 @@ export const sendMessage = async (req: CustomRequest, res: Response): Promise<vo
             return;
         }
 
-        // Verify the sender is a participant in this chat
         if (chat.user1_id !== senderId && chat.user2_id !== senderId) {
             res.status(403).json({ message: 'Forbidden: You are not a participant in this chat.' });
             return;
         }
         
-        // Determine the receiver's ID
         const receiverId = (chat.user1_id === senderId) ? chat.user2_id : chat.user1_id;
 
         const newMessage = await Message.create({
@@ -78,8 +76,19 @@ export const sendMessage = async (req: CustomRequest, res: Response): Promise<vo
             message: message.trim(),
         });
 
-        // Use .save() to update the 'updatedAt' timestamp, bringing the chat to the top of lists.
         await chat.save();
+        
+        // --- ADD THIS BLOCK ---
+        // Get the io instance we attached to the app in server.ts
+        const io = req.app.get('io'); 
+        
+        // Define the room name based on the chat's ID
+        const chatRoom = newMessage.chat_id.toString(); 
+
+        // Emit a 'new_message' event ONLY to clients in that specific chat room.
+        // We send the full message object so the frontend has all the info it needs.
+        io.to(chatRoom).emit('new_message', newMessage.toJSON());
+        // --- END OF NEW BLOCK ---
 
         res.status(201).json({ message: 'Message sent successfully', data: newMessage });
     } catch (error) {
@@ -87,6 +96,7 @@ export const sendMessage = async (req: CustomRequest, res: Response): Promise<vo
         res.status(500).json({ message: 'Internal server error.' });
     }
 };
+
 
 /**
  * @description Fetches all chats for the logged-in user.
