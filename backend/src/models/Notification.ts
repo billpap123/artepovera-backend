@@ -1,77 +1,87 @@
-import { DataTypes, Model, Optional } from 'sequelize';
+import { Model, DataTypes, Optional } from 'sequelize';
 import sequelize from '../config/db';
 import User from './User';
 
+// Interface for Notification attributes
 interface NotificationAttributes {
   notification_id: number;
   user_id: number;
-  sender_id?: number; // Add sender_id as an optional attribute
-  message: string;
+  sender_id: number;
+  message?: string | null; // Keep original message for older notifications
+  message_key?: string | null; // NEW: For i18n keys
+  message_params?: object | null; // NEW: For i18n variables
   read_status: boolean;
-  created_at: Date;
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
-// Optional attributes for Notification creation
-interface NotificationCreationAttributes extends Optional<NotificationAttributes, 'notification_id'> {}
+// Interface for Notification creation attributes
+interface NotificationCreationAttributes extends Optional<NotificationAttributes, 'notification_id' | 'createdAt' | 'updatedAt'> {}
 
-class Notification
-  extends Model<NotificationAttributes, NotificationCreationAttributes>
-  implements NotificationAttributes {
+class Notification extends Model<NotificationAttributes, NotificationCreationAttributes> implements NotificationAttributes {
   public notification_id!: number;
   public user_id!: number;
-  public sender_id?: number; // Add sender_id here as well
-  public message!: string;
+  public sender_id!: number;
+  public message?: string | null;
+  public message_key?: string | null;
+  public message_params?: object | null;
   public read_status!: boolean;
-  public created_at!: Date;
 
-  // Virtual properties
-  public sender?: User; // For the sender of the notification
-  public recipient?: User; // For the recipient of the notification
+  public readonly createdAt!: Date;
+  public readonly updatedAt!: Date;
+
+  // Associations can be defined here if needed
+  public readonly sender?: User;
 }
 
-Notification.init(
-  {
-    notification_id: {
-      type: DataTypes.INTEGER,
-      primaryKey: true,
-      autoIncrement: true,
-    },
-    user_id: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-      references: { model: User, key: 'user_id' },
-    },
-    sender_id: {
-      type: DataTypes.INTEGER,
-      allowNull: true,
-      references: { model: User, key: 'user_id' },
-    },
-    message: {
-      type: DataTypes.TEXT,
-      allowNull: false,
-    },
-    read_status: {
-      type: DataTypes.BOOLEAN,
-      defaultValue: false,
-    },
-    created_at: {
-      type: DataTypes.DATE,
-      defaultValue: DataTypes.NOW,
+Notification.init({
+  notification_id: {
+    type: DataTypes.INTEGER,
+    autoIncrement: true,
+    primaryKey: true,
+  },
+  user_id: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: 'users',
+      key: 'user_id',
     },
   },
-  {
-    sequelize,
-    modelName: 'Notification',
-    tableName: 'notifications',
-    timestamps: false,
-  }
-);
+  sender_id: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: 'users',
+      key: 'user_id',
+    },
+  },
+  message: {
+    type: DataTypes.TEXT,
+    allowNull: true, // Allow null for new key-based notifications
+  },
+  // --- ADD THESE TWO NEW FIELDS ---
+  message_key: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+  message_params: {
+    type: DataTypes.JSONB, // Use JSONB for storing objects like { chatLink: "..." }
+    allowNull: true,
+  },
+  // --- END ADD ---
+  read_status: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false,
+  },
+}, {
+  sequelize,
+  tableName: 'notifications',
+  timestamps: true,
+});
 
-// Define associations
-Notification.belongsTo(User, { foreignKey: 'user_id', as: 'recipient' }); // Recipient of the notification
-User.hasMany(Notification, { foreignKey: 'user_id', as: 'receivedNotifications' });
-
-Notification.belongsTo(User, { foreignKey: 'sender_id', as: 'sender' }); // Sender of the notification
-User.hasMany(Notification, { foreignKey: 'sender_id', as: 'sentNotifications' });
+// Define association
+Notification.belongsTo(User, { as: 'sender', foreignKey: 'sender_id' });
 
 export default Notification;

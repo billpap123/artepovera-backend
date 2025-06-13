@@ -22,6 +22,7 @@ interface CustomRequest<T = any> extends Request {
   };
 }
 
+
 // ─────────────────────────────────────────────────────────────
 // THIS IS THE COMPLETE, UPDATED FUNCTION
 // ─────────────────────────────────────────────────────────────
@@ -49,40 +50,30 @@ export const toggleLike = async (req: CustomRequest, res: Response): Promise<voi
         const frontendUrl = process.env.FRONTEND_URL || 'https://artepovera2.vercel.app';
 
         const loggedInUser = await User.findByPk(loggedInUserId, { attributes: ['fullname'] });
-        const otherUser = await User.findByPk(likedUserId, { attributes: ['fullname'] });
-
-        if (!loggedInUser || !otherUser) {
-            console.warn(`Could not find one or both users (${loggedInUserId}, ${likedUserId})`);
+        
+        if (!loggedInUser) {
+            console.warn(`Could not find the liking user: ${loggedInUserId}`);
             res.status(201).json({ message: 'Like added', liked: true });
             return;
         }
- // 2. Create the full URL to the person's profile who sent the like.
- const likerProfileLink = `${frontendUrl}/user-profile/${loggedInUserId}`;
         
- // 3. Create the new notification message with the embedded HTML link.
- const notificationMessage = `<a href="${likerProfileLink}"  rel="noopener noreferrer">${loggedInUser.fullname || 'Someone'}</a> liked your profile.`;
-
- // 4. Create the notification using the new message.
- await Notification.create({
-     user_id: likedUserId,
-     message: notificationMessage,
-     sender_id: loggedInUserId,
- });
-
+        // Create a simple "like" notification (no mutual match yet)
+        await Notification.create({
+            user_id: likedUserId,
+            message_key: 'notifications.newLike', // Using i18n key
+            sender_id: loggedInUserId,
+        });
 
         const mutualLike = await Like.findOne({
             where: { user_id: likedUserId, liked_user_id: loggedInUserId },
         });
 
         if (!mutualLike) {
-            // No mutual like yet, so just confirm the like was added.
             res.status(201).json({ message: 'Like added', liked: true });
             return;
         }
         
         // --- MUTUAL MATCH LOGIC ---
-        console.log(`Mutual like! Finding/creating chat for users ${loggedInUserId} and ${likedUserId}`);
-        
         const user1 = Math.min(loggedInUserId, likedUserId);
         const user2 = Math.max(loggedInUserId, likedUserId);
 
@@ -93,33 +84,32 @@ export const toggleLike = async (req: CustomRequest, res: Response): Promise<voi
         
         const chatLink = `${frontendUrl}/chat?open=${chat.chat_id}`;
         
-        const messageForOtherUser = `You have a new match with ${loggedInUser.fullname}! <a href="${chatLink}" rel="noopener noreferrer">Start Chatting</a>`;
-        const messageForLoggedInUser = `You matched with ${otherUser.fullname}! <a href="${chatLink}" rel="noopener noreferrer">Start Chatting</a>`;
-        // Create notifications for both users
-        await Notification.create({ user_id: likedUserId, message: messageForOtherUser, sender_id: loggedInUserId });
-        
-        const loggedInUserMatchNotification = await Notification.create({
-            user_id: loggedInUserId,
-            message: messageForLoggedInUser,
-            sender_id: likedUserId
+        // Create "match" notification for the user who was liked
+        await Notification.create({ 
+            user_id: likedUserId, 
+            message_key: 'notifications.newMatch',
+            sender_id: loggedInUserId,
+            message_params: { chatLink }
         });
         
-        // --- THIS IS THE FIX ---
-        // Re-fetch the notification for the logged-in user so it includes the sender's details.
-        // This is the object that will be sent back to the client for an instant UI update.
+        // Create "match" notification for the user who initiated the like
+        const loggedInUserMatchNotification = await Notification.create({
+            user_id: loggedInUserId,
+            message_key: 'notifications.newMatch',
+            sender_id: likedUserId,
+            message_params: { chatLink }
+        });
+        
+        // Re-fetch the notification to include sender details for the client
         const newNotificationForClient = await Notification.findByPk(loggedInUserMatchNotification.notification_id, {
-            include: [{
-                model: User,
-                as: 'sender',
-                attributes: ['user_id', 'fullname', 'profile_picture'] // Or whatever details you show in the notification dropdown
-            }]
+            include: [{ model: User, as: 'sender', attributes: ['user_id', 'fullname', 'profile_picture'] }]
         });
 
         res.status(201).json({
             message: 'Like added (mutual match detected!).',
             liked: true,
             chat_id: chat.chat_id,
-            newNotification: newNotificationForClient // Send the new notification back in the response
+            newNotification: newNotificationForClient
         });
 
     } catch (error) {
@@ -128,6 +118,7 @@ export const toggleLike = async (req: CustomRequest, res: Response): Promise<voi
     }
 };
 
+     
 
 // ... (keep your other controller functions: checkLike, getCurrentUser, getUserProfile, etc.) ...
 
