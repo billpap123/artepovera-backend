@@ -7,9 +7,9 @@ interface NotificationAttributes {
   notification_id: number;
   user_id: number;
   sender_id: number;
-  message?: string | null; // Keep original message for older notifications
-  message_key?: string | null; // NEW: For i18n keys
-  message_params?: object | null; // NEW: For i18n variables
+  message?: string | null;
+  message_key?: string | null;
+  message_params?: object | null;
   read_status: boolean;
   createdAt?: Date;
   updatedAt?: Date;
@@ -30,7 +30,6 @@ class Notification extends Model<NotificationAttributes, NotificationCreationAtt
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
 
-  // Associations can be defined here if needed
   public readonly sender?: User;
 }
 
@@ -58,30 +57,39 @@ Notification.init({
   },
   message: {
     type: DataTypes.TEXT,
-    allowNull: true, // Allow null for new key-based notifications
+    allowNull: true,
   },
-  // --- ADD THESE TWO NEW FIELDS ---
   message_key: {
     type: DataTypes.STRING,
     allowNull: true,
   },
   message_params: {
-    type: DataTypes.JSONB, // Use JSONB for storing objects like { chatLink: "..." }
+    type: DataTypes.JSON, // Changed to JSON from JSONB for broader compatibility
     allowNull: true,
   },
-  // --- END ADD ---
   read_status: {
     type: DataTypes.BOOLEAN,
     allowNull: false,
     defaultValue: false,
   },
+  // --- ADD THESE TWO PROPERTIES TO FIX THE NAMING MISMATCH ---
+  createdAt: {
+    type: DataTypes.DATE,
+    field: 'created_at' // Maps the 'createdAt' property to the 'created_at' column
+  },
+  updatedAt: {
+    type: DataTypes.DATE,
+    field: 'updated_at' // Maps the 'updatedAt' property to the 'updated_at' column
+  }
+  // --- END FIX ---
 }, {
   sequelize,
   tableName: 'notifications',
-  timestamps: true,
+  timestamps: true, // Keep this as true
 });
 
 // Define association
 Notification.belongsTo(User, { as: 'sender', foreignKey: 'sender_id' });
 
 export default Notification;
+
