@@ -2,34 +2,39 @@ import { Model, DataTypes, Optional } from 'sequelize';
 import sequelize from '../config/db';
 import User from './User';
 
-// Interface for Notification attributes
+// Interface defining all attributes of a Notification instance
 interface NotificationAttributes {
   notification_id: number;
   user_id: number;
   sender_id: number;
-  message?: string | null;
-  message_key?: string | null;
-  message_params?: object | null;
+  like_id?: number | null; // This column was seen in your error logs
+  message?: string | null; // For old notifications before the change
+  message_key?: string | null; // For new i18n-based notifications
+  message_params?: object | null; // For variables in i18n keys
   read_status: boolean;
   createdAt?: Date;
   updatedAt?: Date;
 }
 
-// Interface for Notification creation attributes
+// Interface for creating a new Notification (some fields are optional)
 interface NotificationCreationAttributes extends Optional<NotificationAttributes, 'notification_id' | 'createdAt' | 'updatedAt'> {}
 
+// Sequelize Model
 class Notification extends Model<NotificationAttributes, NotificationCreationAttributes> implements NotificationAttributes {
   public notification_id!: number;
   public user_id!: number;
   public sender_id!: number;
+  public like_id?: number | null;
   public message?: string | null;
   public message_key?: string | null;
   public message_params?: object | null;
   public read_status!: boolean;
 
+  // Timestamps
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
 
+  // Associated models
   public readonly sender?: User;
 }
 
@@ -55,6 +60,14 @@ Notification.init({
       key: 'user_id',
     },
   },
+  like_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+          model: 'likes',
+          key: 'like_id'
+      }
+  },
   message: {
     type: DataTypes.TEXT,
     allowNull: true,
@@ -64,7 +77,7 @@ Notification.init({
     allowNull: true,
   },
   message_params: {
-    type: DataTypes.JSON, // Changed to JSON from JSONB for broader compatibility
+    type: DataTypes.JSON,
     allowNull: true,
   },
   read_status: {
@@ -72,24 +85,14 @@ Notification.init({
     allowNull: false,
     defaultValue: false,
   },
-  // --- ADD THESE TWO PROPERTIES TO FIX THE NAMING MISMATCH ---
-  createdAt: {
-    type: DataTypes.DATE,
-    field: 'created_at' // Maps the 'createdAt' property to the 'created_at' column
-  },
-  updatedAt: {
-    type: DataTypes.DATE,
-    field: 'updated_at' // Maps the 'updatedAt' property to the 'updated_at' column
-  }
-  // --- END FIX ---
 }, {
   sequelize,
   tableName: 'notifications',
-  timestamps: true, // Keep this as true
+  timestamps: true, // This enables createdAt and updatedAt
+  underscored: true, // This is the key fix: It maps camelCase fields in the model to snake_case columns in the DB
 });
 
-// Define association
+// Define model associations
 Notification.belongsTo(User, { as: 'sender', foreignKey: 'sender_id' });
 
 export default Notification;
-
