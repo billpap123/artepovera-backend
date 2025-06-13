@@ -11,19 +11,24 @@ export const getNotifications = async (req: Request, res: Response): Promise<voi
       include: [
         {
           model: User,
-          as: 'sender',  // ✅ Make sure Sequelize has the correct alias
-          attributes: ['fullname'], // ✅ Fetch sender's fullname
+          as: 'sender',
+          attributes: ['fullname'],
         },
       ],
-      order: [['created_at', 'DESC']],
+      // FIX 1: Use the camelCase property name 'createdAt' for ordering
+      order: [['createdAt', 'DESC']],
     });
 
+    // This now correctly includes the message_key and message_params for i18n
     const formattedNotifications = notifications.map((notif) => ({
       notification_id: notif.notification_id,
       message: notif.message,
+      message_key: notif.message_key,
+      message_params: notif.message_params,
       read_status: notif.read_status,
-      created_at: notif.created_at,
-      sender_name: notif.sender?.fullname || 'Unknown User', // ✅ Use sender name instead of recipient
+      // FIX 2: Use the camelCase property 'createdAt' from the model
+      createdAt: notif.createdAt, 
+      sender_name: notif.sender?.fullname || 'Unknown User',
     }));
 
     res.status(200).json({ notifications: formattedNotifications });
@@ -46,7 +51,7 @@ export const markNotificationAsRead = async (req: Request, res: Response, next: 
       return;
     }
 
-    notification.read_status = true; // Update read status
+    notification.read_status = true;
     await notification.save();
 
     res.status(200).json({ message: 'Notification marked as read', notification });
