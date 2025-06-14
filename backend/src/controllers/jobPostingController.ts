@@ -418,9 +418,7 @@ export const applyToJob = async (
 ): Promise<void> => {
   try {
     const jobId = parseInt(req.params.jobId, 10);
-    const loggedInUserId = req.user?.id; // This is the User.user_id of the artist
-
-    console.log("🔹 Received Apply Request for Job ID:", jobId, "by User ID:", loggedInUserId);
+    const loggedInUserId = req.user?.id;
 
     if (isNaN(jobId)) {
       res.status(400).json({ message: 'Invalid job ID.' });
@@ -435,88 +433,71 @@ export const applyToJob = async (
       return;
     }
 
-    // Fetch applying artist's user details (for name primarily)
     const artistUser = await User.findByPk(loggedInUserId);
-    if (!artistUser) { // Should be redundant if req.user.id is from valid token
+    if (!artistUser) {
         res.status(404).json({ message: 'Applying artist user not found.' });
         return;
     }
 
     const jobPosting = await JobPosting.findByPk(jobId);
     if (!jobPosting) {
-      console.log("🔴 Job not found for ID:", jobId);
       res.status(404).json({ message: 'Job not found.' });
       return;
     }
 
-    // --- CHECK IF ALREADY APPLIED ---
     const existingApplication = await JobApplication.findOne({
       where: {
         job_id: jobId,
-        artist_user_id: loggedInUserId // artist_user_id in JobApplication model stores User.user_id
+        artist_user_id: loggedInUserId
       }
     });
 
     if (existingApplication) {
-      console.log(`🔶 User ${loggedInUserId} already applied to job ${jobId}.`);
-      res.status(409).json({ message: 'You have already applied to this job.' }); // 409 Conflict
+      res.status(409).json({ message: 'You have already applied to this job.' });
       return;
     }
-    // --- END CHECK ---
 
-    console.log("✅ Job found. Fetching employer for notification...");
     const employerRecord = await Employer.findByPk(jobPosting.employer_id, {
-        include: [{model: User, as: 'user', attributes: ['user_id', 'fullname']}] // Ensure 'user' alias is correct
+        include: [{model: User, as: 'user', attributes: ['user_id', 'fullname']}]
     });
     if (!employerRecord || !employerRecord.user) {
       res.status(404).json({ message: 'Employer details not found for this job posting.' });
       return;
     }
-    const employerUserIdForNotification = employerRecord.user.user_id; // User ID of employer
-    const artistName = artistUser.fullname || "An Artist";
-
-    // --- Create the Job Application Record ---
+    
     const newApplication = await JobApplication.create({
         job_id: jobId,
-        artist_user_id: loggedInUserId, // Storing User.user_id of the artist
+        artist_user_id: loggedInUserId,
         application_date: new Date(),
-        // status will default to 'pending' as per model definition
     });
-    console.log(`✅ Job application created with ID: ${newApplication.application_id}`);
-    // --- End Create ---
 
-// --- CORRECTED NOTIFICATION LINK ---
-const frontendBaseUrl =  'https://artepovera2.vercel.app'; // Fallback to your live URL
-const artistProfileLink = `${frontendBaseUrl}/user-profile/${loggedInUserId}`; // Use User ID of the artist
+    const frontendBaseUrl =  process.env.FRONTEND_URL || 'https://artepovera2.vercel.app';
+    const artistProfileLink = `${frontendBaseUrl}/user-profile/${loggedInUserId}`;
+    
+    // --- THIS IS THE FIX ---
+    // The notification now uses a key and parameters instead of a hardcoded message
+    await Notification.create({
+      user_id: employerRecord.user.user_id,
+      sender_id: loggedInUserId,
+      message_key: 'notifications.newApplication',
+      message_params: {
+        artistName: artistUser.fullname || "An Artist",
+        jobTitle: jobPosting.title,
+        artistProfileLink: artistProfileLink
+      }
+    });
+    // --- END OF FIX ---
 
-const notificationMessage = `${artistName} has applied for your job posting titled "${jobPosting.title}". <a href="${artistProfileLink}"  rel="noopener noreferrer">View profile</a>`;
-// --- END CORRECTION ---
-
-await Notification.create({
-  user_id: employerUserIdForNotification,
-  sender_id: loggedInUserId,
-  message: notificationMessage,
-  // read_status defaults to false, created_at defaults to NOW
-});
-console.log("✅ Notification created for employer user ID:", employerUserIdForNotification);
     res.status(201).json({
       message: 'Application successful! The employer has been notified.',
-      application: { // Send back some details of the created application
-        application_id: newApplication.application_id,
-        job_id: newApplication.job_id,
-        artist_user_id: newApplication.artist_user_id,
-        status: newApplication.status,
-        application_date: newApplication.application_date
-      }
+      application: newApplication
     });
   } catch (error: any) {
     console.error('❌ Error applying to job:', error);
-    // --- Check for Sequelize UniqueConstraintError for duplicate application attempts ---
-    if (error instanceof UniqueConstraintError) { // Use the imported error type
+    if (error instanceof UniqueConstraintError) {
         res.status(409).json({ message: 'You have already applied to this job (constraint error).' });
         return;
     }
-    // --- END CHECK ---
-    next(error); // Pass other errors to the global error handler
+    next(error);
   }
 };
