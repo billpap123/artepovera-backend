@@ -44,22 +44,14 @@ export const toggleLike = async (req: CustomRequest, res: Response): Promise<voi
         await Like.create({ user_id: loggedInUserId, liked_user_id: likedUserId });
         const frontendUrl = process.env.FRONTEND_URL || 'https://artepovera2.vercel.app';
 
-        const loggedInUser = await User.findByPk(loggedInUserId, { attributes: ['fullname'] });
-        
-        if (!loggedInUser) {
-            console.warn(`Could not find the liking user: ${loggedInUserId}`);
-            res.status(201).json({ message: 'Like added', liked: true });
-            return;
-        }
-        
-        // --- THIS IS THE FIX for the simple "like" notification ---
+        // Create a simple "like" notification
         await Notification.create({
             user_id: likedUserId,
-            message_key: 'notifications.newLike', // Using i18n key
             sender_id: loggedInUserId,
-            // No message_params needed here as the 'name' is the sender's name
+            message_key: 'notifications.newLike',
         });
 
+        // Check for a mutual match
         const mutualLike = await Like.findOne({
             where: { user_id: likedUserId, liked_user_id: loggedInUserId },
         });
@@ -69,7 +61,7 @@ export const toggleLike = async (req: CustomRequest, res: Response): Promise<voi
             return;
         }
         
-        // --- MUTUAL MATCH LOGIC ---
+        // --- If it IS a mutual match, create match notifications ---
         const user1 = Math.min(loggedInUserId, likedUserId);
         const user2 = Math.max(loggedInUserId, likedUserId);
 
@@ -80,26 +72,62 @@ export const toggleLike = async (req: CustomRequest, res: Response): Promise<voi
         
         const chatLink = `${frontendUrl}/chat?open=${chat.chat_id}`;
         
-        // Create "match" notification for the user who was liked
+        // Notification for the user who was liked
         await Notification.create({ 
             user_id: likedUserId, 
-            message_key: 'notifications.newMatch',
             sender_id: loggedInUserId,
+            message_key: 'notifications.newMatch',
             message_params: { chatLink }
         });
         
-        // Create "match" notification for the user who initiated the like
+        // Notification for the user who initiated the like
         const loggedInUserMatchNotification = await Notification.create({
             user_id: loggedInUserId,
-            message_key: 'notifications.newMatch',
             sender_id: likedUserId,
+            message_key: 'notifications.newMatch',
             message_params: { chatLink }
         });
         
-        // Re-fetch the notification to include sender details for the client
-        const newNotificationForClient = await Notification.findByPk(loggedInUserMatchNotification.notification_id, {
-            include: [{ model: User, as: 'sender', attributes: ['user_id', 'fullname', 'profile_picture'] }]
+        // --- THIS IS THE FIX ---
+        // Re-fetch the notification, but this time, correctly join the sender's
+        // profile (Artist or Employer) to get the profile picture.
+        const notificationWithDetails = await Notification.findByPk(loggedInUserMatchNotification.notification_id, {
+            include: [{
+                model: User,
+                as: 'sender',
+                attributes: ['user_id', 'fullname'], // Get basic info from User
+                include: [ // Nested include to get the profile picture
+                    {
+                        model: Artist,
+                        as: 'artistProfile',
+                        attributes: ['profile_picture'],
+                        required: false
+                    },
+                    {
+                        model: Employer,
+                        as: 'employerProfile',
+                        attributes: ['profile_picture'],
+                        required: false
+                    }
+                ]
+            }]
         });
+
+        // Reshape the data to be simple for the frontend client
+        const newNotificationForClient = notificationWithDetails ? {
+            notification_id: notificationWithDetails.notification_id,
+            message_key: notificationWithDetails.message_key,
+            message_params: notificationWithDetails.message_params,
+            createdAt: notificationWithDetails.createdAt,
+            read_status: notificationWithDetails.read_status,
+            sender: {
+                user_id: notificationWithDetails.sender?.user_id,
+                fullname: notificationWithDetails.sender?.fullname,
+                // Combine the possible profile picture locations into one field
+                profile_picture: notificationWithDetails.sender?.artistProfile?.profile_picture || notificationWithDetails.sender?.employerProfile?.profile_picture || null
+            }
+        } : null;
+        // --- END OF FIX ---
 
         res.status(201).json({
             message: 'Like added (mutual match detected!).',
