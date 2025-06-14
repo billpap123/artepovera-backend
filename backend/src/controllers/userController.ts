@@ -52,11 +52,12 @@ export const toggleLike = async (req: CustomRequest, res: Response): Promise<voi
             return;
         }
         
-        // Create a simple "like" notification (no mutual match yet)
+        // --- THIS IS THE FIX for the simple "like" notification ---
         await Notification.create({
             user_id: likedUserId,
-            message_key: 'notifications.newLike',
+            message_key: 'notifications.newLike', // Using i18n key
             sender_id: loggedInUserId,
+            // No message_params needed here as the 'name' is the sender's name
         });
 
         const mutualLike = await Like.findOne({
