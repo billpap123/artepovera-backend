@@ -104,14 +104,10 @@ router.post("/users/get-names", userController.getUserNames);
 router.get('/users/profile/:userId', authenticate, userController.getUserProfile);
 router.post('/users/:userId/like', authenticate, userController.toggleLike);
 router.get('/users/:userId/like', authenticate, userController.checkLike);
-// This creates the endpoint: PUT /api/users/update-email
-router.put('/update-email', authenticate, userController.updateUserEmail);
-
-// This creates the endpoint: PUT /api/users/update-password
-router.put('/update-password', authenticate, userController.updateUserPassword);
-
-// This creates the endpoint: DELETE /api/users/me
-router.delete('/me', authenticate, userController.deleteOwnAccount);
+// --- NEW ACCOUNT MANAGEMENT ROUTES (Now correctly grouped) ---
+router.put('/users/update-email', authenticate, userController.updateUserEmail);
+router.put('/users/update-password', authenticate, userController.updateUserPassword);
+router.delete('/users/me', authenticate, userController.deleteOwnAccount);
 
 // --- Artist-specific routes (protected) ---
 router.post('/artists/profile', authenticate, upload.single('profile_picture'), artistController.updateArtistProfile);
