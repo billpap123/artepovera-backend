@@ -42,7 +42,7 @@ import {
 
 // ***** REMOVED: Ensure the "uploads" folder exists *****
 
-export default (io: Server) => {
+export default (io: Server, onlineUsers: Map<number, string>) => {
   // 1. Declare the router ONCE inside the function.
   const router = Router();
 

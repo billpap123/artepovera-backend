@@ -66,20 +66,40 @@ const io = new Server(server, {
     cors: { origin: allowedOrigins, methods: ["GET", "POST"] }
 });
 
+const onlineUsers = new Map<number, string>(); // Maps userId -> socketId
+
 io.on('connection', (socket) => {
     console.log(`🔌 [Socket.IO] User connected: ${socket.id}`);
+
+    // Listen for a user to identify themselves with their userId
+    socket.on('add_user', (userId: number) => {
+        onlineUsers.set(userId, socket.id);
+        console.log(`[Socket.IO] User ${userId} registered with socket ${socket.id}`);
+    });
+
+    // You can keep your chat logic
     socket.on('join_chat', (chatId: string) => {
         socket.join(chatId);
         console.log(`[Socket.IO] User ${socket.id} joined chat room: ${chatId}`);
     });
+
     socket.on('disconnect', () => {
+        // Find and remove the user from the online list when they disconnect
+        for (const [userId, socketId] of onlineUsers.entries()) {
+            if (socketId === socket.id) {
+                onlineUsers.delete(userId);
+                console.log(`[Socket.IO] User ${userId} disconnected.`);
+                break;
+            }
+        }
         console.log(`🔥 [Socket.IO] User disconnected: ${socket.id}`);
     });
 });
 
+
 // --- ROUTE REGISTRATION (Using the new dependency injection pattern) ---
 // We now pass 'io' directly into our router setup function.
-app.use('/api', routes(io));
+app.use('/api', routes(io, onlineUsers));
 console.log('[SETUP] API routes mounted under /api');
 
 // --- Error Handling Middleware ---
