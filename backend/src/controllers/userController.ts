@@ -58,9 +58,12 @@ export const toggleLike = async (req: CustomRequest, res: Response): Promise<voi
             user_id: likedUserId,
             sender_id: loggedInUserId,
             message_key: 'notifications.newLike',
-            message_params: { name: loggedInUser.fullname } // <-- ADDED
+            message_params: {
+                name: loggedInUser.fullname,
+                profileLink: `/user-profile/${loggedInUserId}` // <-- Corrected key name
+            }
         });
-
+                
         const mutualLike = await Like.findOne({
             where: { user_id: likedUserId, liked_user_id: loggedInUserId },
         });
