@@ -485,3 +485,153 @@ export const deleteUser = async (req: CustomRequest, res: Response): Promise<voi
         res.status(500).json({ message: 'Internal server error' });
     }
 };
+
+
+
+// ─────────────────────────────────────────────────────────────
+//                ACCOUNT MANAGEMENT FUNCTIONS
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Updates the logged-in user's email after verifying their current password.
+ */
+export const updateUserEmail = async (req: CustomRequest, res: Response): Promise<void> => {
+    const loggedInUserId = req.user?.id;
+    const { currentPassword, newEmail } = req.body;
+
+    if (!loggedInUserId) {
+        res.status(401).json({ message: 'Unauthorized.' });
+        return;
+    }
+    if (!currentPassword || !newEmail) {
+        res.status(400).json({ message: 'Current password and new email are required.' });
+        return;
+    }
+
+    try {
+        const user = await User.findByPk(loggedInUserId);
+        if (!user) {
+            res.status(404).json({ message: 'User not found.' });
+            return;
+        }
+
+        // 1. Verify the current password
+        const isPasswordCorrect = await bcrypt.compare(currentPassword, user.password);
+        if (!isPasswordCorrect) {
+            res.status(401).json({ message: 'Incorrect current password.' });
+            return;
+        }
+
+        // 2. Check if the new email is already in use
+        if (newEmail === user.email) {
+            res.status(400).json({ message: 'New email cannot be the same as the current email.' });
+            return;
+        }
+        const existingUser = await User.findOne({ where: { email: newEmail } });
+        if (existingUser) {
+            res.status(409).json({ message: 'This email is already in use by another account.' });
+            return;
+        }
+
+        // 3. Update the email
+        user.email = newEmail;
+        await user.save();
+
+        res.status(200).json({ message: 'Email updated successfully.' });
+
+    } catch (error) {
+        console.error('Error updating email:', error);
+        res.status(500).json({ message: 'An internal error occurred while updating the email.' });
+    }
+};
+
+/**
+ * Updates the logged-in user's password after verifying their current password.
+ */
+export const updateUserPassword = async (req: CustomRequest, res: Response): Promise<void> => {
+    const loggedInUserId = req.user?.id;
+    const { currentPassword, newPassword } = req.body;
+
+    if (!loggedInUserId) {
+        res.status(401).json({ message: 'Unauthorized.' });
+        return;
+    }
+    if (!currentPassword || !newPassword) {
+        res.status(400).json({ message: 'Current password and new password are required.' });
+        return;
+    }
+    if (newPassword.length < 6) {
+        res.status(400).json({ message: 'New password must be at least 6 characters long.' });
+        return;
+    }
+
+    try {
+        const user = await User.findByPk(loggedInUserId);
+        if (!user) {
+            res.status(404).json({ message: 'User not found.' });
+            return;
+        }
+
+        // 1. Verify the current password
+        const isPasswordCorrect = await bcrypt.compare(currentPassword, user.password);
+        if (!isPasswordCorrect) {
+            res.status(401).json({ message: 'Incorrect current password.' });
+            return;
+        }
+
+        // 2. Hash the new password
+        const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+
+        // 3. Update the password
+        user.password = hashedNewPassword;
+        await user.save();
+
+        res.status(200).json({ message: 'Password updated successfully.' });
+
+    } catch (error) {
+        console.error('Error updating password:', error);
+        res.status(500).json({ message: 'An internal error occurred while updating the password.' });
+    }
+};
+
+/**
+ * Deletes the logged-in user's own account after verifying their password.
+ */
+export const deleteOwnAccount = async (req: CustomRequest, res: Response): Promise<void> => {
+    const loggedInUserId = req.user?.id;
+    const { password } = req.body;
+
+    if (!loggedInUserId) {
+        res.status(401).json({ message: 'Unauthorized.' });
+        return;
+    }
+    if (!password) {
+        res.status(400).json({ message: 'Password confirmation is required to delete your account.' });
+        return;
+    }
+
+    try {
+        const user = await User.findByPk(loggedInUserId);
+        if (!user) {
+            res.status(404).json({ message: 'User not found.' });
+            return;
+        }
+
+        // 1. Verify the password to confirm deletion
+        const isPasswordCorrect = await bcrypt.compare(password, user.password);
+        if (!isPasswordCorrect) {
+            res.status(401).json({ message: 'Incorrect password. Account deletion cancelled.' });
+            return;
+        }
+
+        // 2. Delete the user
+        // Sequelize's `destroy` with hooks/cascades (if set up) will handle related data.
+        await user.destroy();
+
+        res.status(200).json({ message: 'Your account has been permanently deleted.' });
+
+    } catch (error) {
+        console.error('Error deleting own account:', error);
+        res.status(500).json({ message: 'An internal error occurred while deleting the account.' });
+    }
+};

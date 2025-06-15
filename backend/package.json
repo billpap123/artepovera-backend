@@ -6,8 +6,7 @@
     "dev": "ts-node-dev src/server.ts",
     "build": "rm -rf dist && tsc",
     "start": "node dist/server.js",
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "db:reset": "ts-node src/reset-db.ts"
+    "test": "echo \"Error: no test specified\" && exit 1"
 
   },
   "keywords": [],
