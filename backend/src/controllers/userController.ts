@@ -17,7 +17,39 @@ interface CustomRequest<T = any> extends Request {
     user_type: string;
   };
 }
-
+// --- NEW HELPER FUNCTION ---
+// This function creates the standard user object we send to the frontend.
+// It guarantees the structure is always the same.
+const buildUserResponse = async (userInstance: User) => {
+    let artist_id: number | null = null;
+    let employer_id: number | null = null;
+    let profile_picture: string | null = null;
+  
+    if (userInstance.user_type === 'Artist') {
+      const artist = await Artist.findOne({ where: { user_id: userInstance.user_id } });
+      if (artist) {
+        artist_id = artist.artist_id;
+        profile_picture = artist.profile_picture;
+      }
+    } else if (userInstance.user_type === 'Employer') {
+      const employer = await Employer.findOne({ where: { user_id: userInstance.user_id } });
+      if (employer) {
+        employer_id = employer.employer_id;
+        profile_picture = employer.profile_picture;
+      }
+    }
+  
+    return {
+      user_id: userInstance.user_id,
+      username: userInstance.username,
+      fullname: userInstance.fullname,
+      user_type: userInstance.user_type,
+      profile_picture: profile_picture,
+      artist_id: artist_id,
+      employer_id: employer_id,
+    };
+  };
+  
 // ─────────────────────────────────────────────────────────────
 // Like/Unlike a user and create notifications
 // ─────────────────────────────────────────────────────────────
@@ -303,13 +335,8 @@ export const loginUser = async (req: CustomRequest, res: Response, next: NextFun
             res.status(400).json({ message: 'Email and password are required.' }); return;
         }
 
-        const user = await User.findOne({
-            where: { email },
-            include: [
-                { model: Artist, as: 'artistProfile', attributes: ['artist_id', 'profile_picture'] },
-                { model: Employer, as: 'employerProfile', attributes: ['employer_id', 'profile_picture'] }
-            ]
-        });
+        const user = await User.findOne({ where: { email } });
+
         if (!user) {
             res.status(404).json({ message: 'User not found.' }); return;
         }
@@ -322,18 +349,11 @@ export const loginUser = async (req: CustomRequest, res: Response, next: NextFun
         const token = jwt.sign(
             { id: user.user_id, username: user.username, user_type: user.user_type },
             process.env.JWT_SECRET || 'default_secret',
-            { expiresIn: '1h' }
+            { expiresIn: '1h' } // Consider a longer expiry
         );
 
-        const userResponse = {
-            user_id: user.user_id,
-            username: user.username,
-            fullname: user.fullname,
-            user_type: user.user_type,
-            profile_picture: user.artistProfile?.profile_picture || user.employerProfile?.profile_picture || null,
-            artist_id: user.artistProfile?.artist_id || null,
-            employer_id: user.employerProfile?.employer_id || null,
-        };
+        // Use the new helper function to build a consistent response
+        const userResponse = await buildUserResponse(user);
 
         res.json({ token, user: userResponse });
 
@@ -343,59 +363,60 @@ export const loginUser = async (req: CustomRequest, res: Response, next: NextFun
     }
 };
 
+
 export const createUser = async (req: Request, res: Response): Promise<void> => {
-     try {
-        const { username, email, password, fullname, phone_number, user_type, location, isStudent } = req.body;
-        if (!username || !email || !password || !fullname || !user_type) {
-             res.status(400).json({ message: 'Username, email, password, fullname, and user type are required.' }); return;
-        }
-        if (location && (!location.coordinates || !Array.isArray(location.coordinates) || location.coordinates.length !== 2)) {
-            res.status(400).json({ message: 'Location must be in a valid GeoJSON Point format.' }); return;
-        }
-        const existingUserByEmail = await User.findOne({ where: { email } });
-        if (existingUserByEmail) { res.status(409).json({ message: 'Email already in use.' }); return; }
-        const existingUserByUsername = await User.findOne({ where: { username } });
-         if (existingUserByUsername) { res.status(409).json({ message: 'Username already exists.' }); return; }
+    try {
+       const { username, email, password, fullname, phone_number, user_type, location, isStudent } = req.body;
+       if (!username || !email || !password || !fullname || !user_type) {
+            res.status(400).json({ message: 'Username, email, password, fullname, and user type are required.' }); return;
+       }
+       if (location && (!location.coordinates || !Array.isArray(location.coordinates) || location.coordinates.length !== 2)) {
+           res.status(400).json({ message: 'Location must be in a valid GeoJSON Point format.' }); return;
+       }
+       const existingUserByEmail = await User.findOne({ where: { email } });
+       if (existingUserByEmail) { res.status(409).json({ message: 'Email already in use.' }); return; }
+       const existingUserByUsername = await User.findOne({ where: { username } });
+        if (existingUserByUsername) { res.status(409).json({ message: 'Username already exists.' }); return; }
 
-        const hashedPassword = await bcrypt.hash(password, 10);
+       const hashedPassword = await bcrypt.hash(password, 10);
 
-        const result = await sequelize.transaction(async (t) => {
-            const user = await User.create({
-              username, email, password: hashedPassword, fullname, phone_number, user_type,
-              location: location ? { type: 'Point', coordinates: location.coordinates } : null,
-            }, { transaction: t });
+       // The transaction is perfect, keep it. We just change what happens after.
+       const newUser = await sequelize.transaction(async (t) => {
+           const user = await User.create({
+             username, email, password: hashedPassword, fullname, phone_number, user_type,
+             location: location ? { type: 'Point', coordinates: location.coordinates } : null,
+           }, { transaction: t });
 
-            let artist_id: number | null = null;
-            let employer_id: number | null = null;
+           if (user_type === 'Artist') {
+             await Artist.create({ user_id: user.user_id, bio: '', profile_picture: null, is_student: !!isStudent }, { transaction: t });
+           } else if (user_type === 'Employer') {
+             await Employer.create({ user_id: user.user_id, bio: '', profile_picture: null }, { transaction: t });
+           } else { throw new Error('Invalid user type specified during profile creation.'); }
 
-            if (user_type === 'Artist') {
-              const isStudentValue = !!isStudent;
-              const artist = await Artist.create({ user_id: user.user_id, bio: '', profile_picture: null, is_student: isStudentValue }, { transaction: t });
-              artist_id = artist.artist_id;
-            } else if (user_type === 'Employer') {
-              const employer = await Employer.create({ user_id: user.user_id, bio: '', profile_picture: null }, { transaction: t });
-              employer_id = employer.employer_id;
-            } else { throw new Error('Invalid user type specified during profile creation.'); }
+           // The transaction only returns the user instance
+           return user;
+       });
 
-             const token = jwt.sign( { id: user.user_id, username: user.username, user_type: user.user_type }, process.env.JWT_SECRET || 'default_secret', { expiresIn: '1h' } );
-             return { user, token, artist_id, employer_id };
-        });
+       // After the transaction is successful, generate the token and response
+       const token = jwt.sign(
+           { id: newUser.user_id, username: newUser.username, user_type: newUser.user_type },
+           process.env.JWT_SECRET || 'default_secret',
+           { expiresIn: '1h' }
+       );
 
-        res.status(201).json({
-          user: {
-              user_id: result.user.user_id, username: result.user.username, fullname: result.user.fullname, user_type: result.user.user_type,
-              artist_id: result.artist_id, employer_id: result.employer_id, profile_picture: null
-          },
-          token: result.token,
-        });
-      } catch (error: any) {
-        console.error('Error creating user:', error);
-         if (error.name === 'SequelizeValidationError' || error.name === 'SequelizeUniqueConstraintError') {
-            res.status(400).json({ message: 'Registration failed due to invalid data.', errors: error.errors?.map((e: any) => e.message) });
-        } else {
-            res.status(500).json({ message: 'Error creating user', error: error.message });
-        }
-      }
+       // Use the new helper function to build a consistent response
+       const userResponse = await buildUserResponse(newUser);
+       
+       res.status(201).json({ token, user: userResponse });
+
+     } catch (error: any) {
+       console.error('Error creating user:', error);
+        if (error.name === 'SequelizeValidationError' || error.name === 'SequelizeUniqueConstraintError') {
+           res.status(400).json({ message: 'Registration failed due to invalid data.', errors: error.errors?.map((e: any) => e.message) });
+       } else {
+           res.status(500).json({ message: 'Error creating user', error: error.message });
+       }
+     }
 };
 
 export const getProfilesByUserType = async (req: CustomRequest, res: Response): Promise<void> => {
