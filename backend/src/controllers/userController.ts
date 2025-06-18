@@ -354,6 +354,7 @@ export const loginUser = async (req: CustomRequest, res: Response, next: NextFun
 
         // Use the new helper function to build a consistent response
         const userResponse = await buildUserResponse(user);
+        console.log("!!!!!!!! BACKEND is sending this user object after LOGIN:", userResponse);
 
         res.json({ token, user: userResponse });
 
@@ -406,6 +407,8 @@ export const createUser = async (req: Request, res: Response): Promise<void> => 
 
        // Use the new helper function to build a consistent response
        const userResponse = await buildUserResponse(newUser);
+       console.log("!!!!!!!! BACKEND is sending this user object after REGISTER:", userResponse);
+
        
        res.status(201).json({ token, user: userResponse });
 
