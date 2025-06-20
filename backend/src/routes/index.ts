@@ -43,14 +43,16 @@ import {
 // ***** REMOVED: Ensure the "uploads" folder exists *****
 
 export default (io: Server, onlineUsers: Map<number, string>) => {
-  // 1. Declare the router ONCE inside the function.
   const router = Router();
 
-  // 2. Add a small middleware to attach 'io' to every request object.
-  router.use((req, res, next) => {
-      (req as any).io = io;
-      next();
+  router.use((req, _res, next) => {
+    (req as any).io = io;                 // ✨ το είχες
+    (req as any).onlineUsers = onlineUsers; // ✨ αυτό λείπει
+    next();
   });
+
+
+
 
 
 // This creates the endpoint: GET /api/categories/

@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt, { JwtPayload } from 'jsonwebtoken';
+import { Server } from 'socket.io';             // ⭐  ΝΕΟ import
 
 export interface DecodedToken extends JwtPayload {
   id: number;
@@ -10,9 +11,13 @@ export interface DecodedToken extends JwtPayload {
 // ✅ Ensure the request includes user, params, query, and body
 export interface CustomRequest extends Request {
   user?: DecodedToken;
-  params: { [key: string]: string };  // ✅ Ensure params exist
-  query: { [key: string]: string };   // ✅ Ensure query exists
-  body: any;                          // ✅ Ensure body exists
+  params: { [key: string]: string };
+  query: { [key: string]: string };
+  body: any;
+
+  /* --- ΝΕΑ πεδία --- */
+  io?: Server;
+  onlineUsers?: Map<number, string>;
 }
 
 // Note: we now declare it returns `void` instead of returning a `Response`.
