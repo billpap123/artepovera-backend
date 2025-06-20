@@ -52,57 +52,63 @@ export const createChat = async (req: CustomRequest, res: Response): Promise<voi
  * @body { chat_id: number, message: string }
  */
 export const sendMessage = async (req: CustomRequest, res: Response): Promise<void> => {
-    const senderId          = req.user?.id;
-    const { chat_id, message } = req.body;
-  
-    if (!chat_id || !senderId || !message?.trim()) {
-      res.status(400).json({ message: 'Missing chat_id, authenticated sender_id, or message.' });
+  const senderId              = req.user?.id;
+  const { chat_id, message }  = req.body;
+
+  /* --------------------------- basic validation --------------------------- */
+  if (!chat_id || !senderId || !message?.trim()) {
+    res.status(400).json({ message: 'Missing chat_id, authenticated sender_id, or message.' });
+    return;
+  }
+
+  try {
+    const chat = await Chat.findByPk(chat_id);
+    if (!chat) {
+      res.status(404).json({ message: 'Chat not found.' });
       return;
     }
-  
-    try {
-      const chat = await Chat.findByPk(chat_id);
-      if (!chat) {
-        res.status(404).json({ message: 'Chat not found.' });
-        return;
-      }
-      if (chat.user1_id !== senderId && chat.user2_id !== senderId) {
-        res.status(403).json({ message: 'Forbidden: You are not a participant in this chat.' });
-        return;
-      }
-  
-      const receiverId = chat.user1_id === senderId ? chat.user2_id : chat.user1_id;
-  
-      /* ------------------------------ DB write ------------------------------ */
-      const newMessage = await Message.create({
-        chat_id: chat.chat_id,
-        sender_id: senderId,
-        receiver_id: receiverId,
-        message: message.trim(),
-      });
-  
-      // ανανεώνουμε το updatedAt για σωστό sort
-      await chat.update({ updatedAt: new Date() });
-  
-      /* ---------------------------- Socket emits --------------------------- */
-      const io            = req.io as Server;                    // ⭐ τύπος ασφαλής
-      const onlineUsers   = req.onlineUsers;                     // ⭐ map (ίσως undefined)
-      const roomName      = String(chat.chat_id);
-      const payload       = newMessage.toJSON();
-  
-      // 1. όσοι έχουν ανοιχτό το room
-      io.to(roomName).emit('new_message', payload);
-  
-      // 2. κατευθείαν στον παραλήπτη (αν είναι online αλλά όχι στο room)
-      const receiverSocket = onlineUsers?.get(receiverId);
-      if (receiverSocket) io.to(receiverSocket).emit('new_message', payload);
-  
-      res.status(201).json({ message: 'Message sent successfully', data: newMessage });
-    } catch (error) {
-      console.error('❌ Error in sendMessage:', error);
-      res.status(500).json({ message: 'Internal server error.' });
+    if (chat.user1_id !== senderId && chat.user2_id !== senderId) {
+      res.status(403).json({ message: 'Forbidden: You are not a participant in this chat.' });
+      return;
     }
-  };
+
+    const receiverId = chat.user1_id === senderId ? chat.user2_id : chat.user1_id;
+
+    /* ------------------------------- DB write ------------------------------ */
+    const newMessage = await Message.create({
+      chat_id   : chat.chat_id,
+      sender_id : senderId,
+      receiver_id: receiverId,
+      message   : message.trim(),
+    });
+
+    await chat.update({ updatedAt: new Date() });      // refresh για sort
+
+    /* ------------------------------ Socket.IO ----------------------------- */
+    const io          = req.io as Server;
+    const onlineUsers = req.onlineUsers;
+    const roomName    = String(chat.chat_id);
+    const payload     = newMessage.toJSON();
+
+    // ① broadcast στο room (όλοι όσοι βλέπουν το chat)
+    io.to(roomName).emit('new_message', payload);
+
+    // ② direct push ΜΟΝΟ αν ο παραλήπτης δεν είναι ήδη στο room
+    const receiverSocket = onlineUsers?.get(receiverId);
+    if (receiverSocket) {
+      const socketsInRoom = await io.in(roomName).allSockets(); // Set<string>
+      if (!socketsInRoom.has(receiverSocket)) {
+        io.to(receiverSocket).emit('new_message', payload);
+      }
+    }
+
+    res.status(201).json({ message: 'Message sent successfully', data: newMessage });
+  } catch (error) {
+    console.error('❌ Error in sendMessage:', error);
+    res.status(500).json({ message: 'Internal server error.' });
+  }
+};
+
   
 
 
