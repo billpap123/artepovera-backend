@@ -8,6 +8,7 @@ import Notification from '../models/Notification';
 import JobApplication from '../models/JobApplication';
 import { UniqueConstraintError, Sequelize } from 'sequelize'; // The main Sequelize object
 import Category from '../models/Category'; // <-- 1. IMPORT THE NEW CATEGORY MODEL
+import { pushNotification } from '../utils/socketHelpers';          // ⭐
 
 
 
@@ -412,93 +413,97 @@ export const getJobPostingsByEmployerId = async (
 
 // --- THIS IS THE FUNCTION TO UPDATE ---
 export const applyToJob = async (
-  req: CustomRequest,
-  res: Response,
+  req : CustomRequest,
+  res : Response,
   next: NextFunction
 ): Promise<void> => {
   try {
-    const jobId = parseInt(req.params.jobId, 10);
+    const jobId          = Number(req.params.jobId);
     const loggedInUserId = req.user?.id;
 
-    if (isNaN(jobId)) {
-      res.status(400).json({ message: 'Invalid job ID.' });
-      return;
+    /* ---------- basic guards ---------- */
+    if (Number.isNaN(jobId)) {
+      res.status(400).json({ message: 'Invalid job id.' });
+      return;                                           // ✅ δεν “επιστρέφω” Response
     }
     if (!loggedInUserId) {
-      res.status(401).json({ message: 'Unauthorized: no user in token.' });
+      res.status(401).json({ message: 'Unauthorized.' });
       return;
     }
     if (req.user?.user_type !== 'Artist') {
-      res.status(403).json({ message: 'Only artists can apply to jobs.' });
+      res.status(403).json({ message: 'Only artists can apply.' });
       return;
     }
 
-    const artistUser = await User.findByPk(loggedInUserId);
+    /* ---------- fetch base records ---------- */
+    const [artistUser, jobPosting] = await Promise.all([
+      User.findByPk(loggedInUserId, { attributes: ['fullname'] }),
+      JobPosting.findByPk(jobId),
+    ]);
     if (!artistUser) {
-        res.status(404).json({ message: 'Applying artist user not found.' });
-        return;
+      res.status(404).json({ message: 'Artist not found.' });
+      return;
     }
-
-    const jobPosting = await JobPosting.findByPk(jobId);
     if (!jobPosting) {
       res.status(404).json({ message: 'Job not found.' });
       return;
     }
 
-    const existingApplication = await JobApplication.findOne({
-      where: {
-        job_id: jobId,
-        artist_user_id: loggedInUserId
-      }
+    /* ---------- duplicate application? ---------- */
+    const dup = await JobApplication.findOne({
+      where: { job_id: jobId, artist_user_id: loggedInUserId }
     });
-
-    if (existingApplication) {
-      res.status(409).json({ message: 'You have already applied to this job.' });
+    if (dup) {
+      res.status(409).json({ message: 'Already applied.' });
       return;
     }
 
-    const employerRecord = await Employer.findByPk(jobPosting.employer_id, {
-        include: [{model: User, as: 'user', attributes: ['user_id', 'fullname']}]
-    });
-    if (!employerRecord || !employerRecord.user) {
-      res.status(404).json({ message: 'Employer details not found for this job posting.' });
-      return;
-    }
-    
+    /* ---------- create application ---------- */
     const newApplication = await JobApplication.create({
-        job_id: jobId,
-        artist_user_id: loggedInUserId,
-        application_date: new Date(),
+      job_id         : jobId,
+      artist_user_id : loggedInUserId,
+      application_date: new Date(),
     });
 
-    const frontendBaseUrl =  process.env.FRONTEND_URL || 'https://artepovera2.vercel.app';
-    const artistProfileLink = `${frontendBaseUrl}/user-profile/${loggedInUserId}`;
-    
-    // --- THIS IS THE FIX ---
-    // The notification now uses a key and parameters instead of a hardcoded message
-    await Notification.create({
-      user_id: employerRecord.user.user_id,
-      sender_id: loggedInUserId,
-      message_key: 'notifications.newApplication',
-      message_params: {
-        artistName: artistUser.fullname || "An Artist",
-        jobTitle: jobPosting.title,
-        artistProfileLink: artistProfileLink
-      }
+    /* ---------- notification to employer ---------- */
+    const employer = await Employer.findByPk(jobPosting.employer_id, {
+      include: [{ model: User, as: 'user', attributes: ['user_id'] }]
     });
-    // --- END OF FIX ---
-
-    res.status(201).json({
-      message: 'Application successful! The employer has been notified.',
-      application: newApplication
-    });
-  } catch (error: any) {
-    console.error('❌ Error applying to job:', error);
-    if (error instanceof UniqueConstraintError) {
-        res.status(409).json({ message: 'You have already applied to this job (constraint error).' });
-        return;
+    if (!employer || !employer.user) {
+      res.status(404).json({ message: 'Employer user not found.' });
+      return;
     }
-    next(error);
+
+    const frontBase = process.env.FRONTEND_URL || 'https://artepovera2.vercel.app';
+    const artistLink = `${frontBase}/user-profile/${loggedInUserId}`;
+
+    const notif = await Notification.create({
+      user_id       : employer.user.user_id,
+      sender_id     : loggedInUserId,
+      message_key   : 'notifications.newApplication',
+      message_params: {
+        artistName       : artistUser.fullname,
+        jobTitle         : jobPosting.title,
+        artistProfileLink: artistLink,
+      },
+    });
+
+    /* ---------- live push στον εργοδότη ---------- */
+    pushNotification(req.io!, req.onlineUsers!, employer.user.user_id, notif.toJSON());
+
+    /* ---------- response ---------- */
+    res.status(201).json({
+      message     : 'Application successful! Employer notified.',
+      application : newApplication,
+    });
+  } catch (err) {
+    /* μοναδική περίπτωση 409 από unique constraint */
+    if (err instanceof UniqueConstraintError) {
+      res.status(409).json({ message: 'Already applied (constraint).' });
+      return;
+    }
+    console.error('❌ applyToJob error', err);
+    next(err);                                           // αφήνουμε το κεντρικό error-handler
   }
 };
 

@@ -8,16 +8,10 @@ import Like from '../models/Like';
 import Notification from '../models/Notification';
 import Chat from '../models/Chat';
 import sequelize from '../config/db';
+import { pushNotification } from '../utils/socketHelpers';          // ⭐
+import { CustomRequest } from '../middleware/authMiddleware'; // κρατάμε ΜΟΝΟ το import
 
-interface CustomRequest<T = any> extends Request {
-  body: T;
-  user?: {
-    id: number;
-    username: string;
-    user_type: string;
-  };
-}
-// --- NEW HELPER FUNCTION ---
+  // --- NEW HELPER FUNCTION ---
 // This function creates the standard user object we send to the frontend.
 // It guarantees the structure is always the same.
 const buildUserResponse = async (userInstance: User) => {
@@ -55,122 +49,129 @@ const buildUserResponse = async (userInstance: User) => {
 // ─────────────────────────────────────────────────────────────
 export const toggleLike = async (req: CustomRequest, res: Response): Promise<void> => {
     const loggedInUserId = req.user?.id;
-    const likedUserId = parseInt(req.params.userId, 10);
-
+    const likedUserId    = Number(req.params.userId);
+  
+    /* ---------------- basic guards ---------------- */
     if (!loggedInUserId || !likedUserId || isNaN(likedUserId) || loggedInUserId === likedUserId) {
-        res.status(400).json({ error: 'Invalid request.' });
-        return;
+      res.status(400).json({ error: 'Invalid request.' });
+      return;
     }
-
+  
     try {
-        // --- FIX STEP 1: Get the names of both users first ---
-        const loggedInUser = await User.findByPk(loggedInUserId, { attributes: ['fullname'] });
-        const likedUser = await User.findByPk(likedUserId, { attributes: ['fullname'] });
-
-        if (!loggedInUser || !likedUser) {
-            res.status(404).json({ error: 'User not found.' });
-            return;
+      /* ---------- fetch users (names) ---------- */
+      const [loggedInUser, likedUser] = await Promise.all([
+        User.findByPk(loggedInUserId, { attributes: ['fullname'] }),
+        User.findByPk(likedUserId   , { attributes: ['fullname'] })
+      ]);
+      if (!loggedInUser || !likedUser) {
+        res.status(404).json({ error: 'User not found.' });
+        return;
+      }
+  
+      /* ---------- like / unlike ---------- */
+      const existingLike = await Like.findOne({
+        where: { user_id: loggedInUserId, liked_user_id: likedUserId }
+      });
+  
+      if (existingLike) {
+        await existingLike.destroy();
+        res.status(200).json({ message: 'Like removed', liked: false });
+        return;
+      }
+  
+      await Like.create({ user_id: loggedInUserId, liked_user_id: likedUserId });
+  
+      /* ---------- απλό like notification ---------- */
+      const newLikeNotif = await Notification.create({
+        user_id      : likedUserId,
+        sender_id    : loggedInUserId,
+        message_key  : 'notifications.newLike',
+        message_params: {
+          name       : loggedInUser.fullname,
+          profileLink: `/user-profile/${loggedInUserId}`
         }
-
-        const existingLike = await Like.findOne({
-            where: { user_id: loggedInUserId, liked_user_id: likedUserId },
-        });
-
-        if (existingLike) {
-            await existingLike.destroy();
-            res.status(200).json({ message: 'Like removed', liked: false });
-            return;
+      });
+  
+      /* ---------- live-push στον ληκτή ---------- */
+      pushNotification(req.io!, req.onlineUsers!, likedUserId, newLikeNotif.toJSON());
+  
+      /* ---------- mutual like? ---------- */
+      const mutual = await Like.findOne({
+        where: { user_id: likedUserId, liked_user_id: loggedInUserId }
+      });
+  
+      if (!mutual) {
+        res.status(201).json({ message: 'Like added', liked: true });
+        return;
+      }
+  
+      /* ---------- create / fetch chat ---------- */
+      const [u1, u2] = [loggedInUserId, likedUserId].sort((a, b) => a - b);
+      const [chat]   = await Chat.findOrCreate({
+        where   : { user1_id: u1, user2_id: u2 },
+        defaults: { user1_id: u1, user2_id: u2 }
+      });
+  
+      const frontendURL = process.env.FRONTEND_URL || 'https://artepovera2.vercel.app';
+      const chatLink    = `${frontendURL}/chat?open=${chat.chat_id}`;
+  
+      /* ---------- match notifications (δύο) ---------- */
+      const notifForLiked = await Notification.create({
+        user_id      : likedUserId,
+        sender_id    : loggedInUserId,
+        message_key  : 'notifications.newMatch',
+        message_params: { name: loggedInUser.fullname, chatLink }
+      });
+      const notifForLogged = await Notification.create({
+        user_id      : loggedInUserId,
+        sender_id    : likedUserId,
+        message_key  : 'notifications.newMatch',
+        message_params: { name: likedUser.fullname, chatLink }
+      });
+  
+      /* ---------- live-push και στους δύο ---------- */
+      pushNotification(req.io!, req.onlineUsers!, likedUserId   , notifForLiked.toJSON());
+      pushNotification(req.io!, req.onlineUsers!, loggedInUserId, notifForLogged.toJSON());
+  
+      /* ---------- enrich μία απ’ τις δύο για να τη στείλω πίσω ---------- */
+      const notifDetails = await Notification.findByPk(notifForLogged.notification_id, {
+        include: [{
+          model      : User,
+          as         : 'sender',
+          attributes : ['user_id', 'fullname'],
+          include    : [
+            { model: Artist , as: 'artistProfile'  , attributes: ['profile_picture'], required: false },
+            { model: Employer, as: 'employerProfile', attributes: ['profile_picture'], required: false }
+          ]
+        }]
+      });
+  
+      const newNotificationForClient = notifDetails && {
+        notification_id: notifDetails.notification_id,
+        message_key    : notifDetails.message_key,
+        message_params : notifDetails.message_params,
+        createdAt      : notifDetails.createdAt,
+        read_status    : notifDetails.read_status,
+        sender         : {
+          user_id        : notifDetails.sender?.user_id,
+          fullname       : notifDetails.sender?.fullname,
+          profile_picture: notifDetails.sender?.artistProfile?.profile_picture
+                        || notifDetails.sender?.employerProfile?.profile_picture
+                        || null
         }
-
-        await Like.create({ user_id: loggedInUserId, liked_user_id: likedUserId });
-        const frontendUrl = process.env.FRONTEND_URL || 'https://artepovera2.vercel.app';
-
-        // --- FIX STEP 2: Add 'name' to the "newLike" notification ---
-        await Notification.create({
-            user_id: likedUserId,
-            sender_id: loggedInUserId,
-            message_key: 'notifications.newLike',
-            message_params: {
-                name: loggedInUser.fullname,
-                profileLink: `/user-profile/${loggedInUserId}` // <-- Corrected key name
-            }
-        });
-                
-        const mutualLike = await Like.findOne({
-            where: { user_id: likedUserId, liked_user_id: loggedInUserId },
-        });
-
-        if (!mutualLike) {
-            res.status(201).json({ message: 'Like added', liked: true });
-            return;
-        }
-        
-        const user1 = Math.min(loggedInUserId, likedUserId);
-        const user2 = Math.max(loggedInUserId, likedUserId);
-
-        const [chat] = await Chat.findOrCreate({
-            where: { user1_id: user1, user2_id: user2 },
-            defaults: { user1_id: user1, user2_id: user2 }
-        });
-        
-        const chatLink = `${frontendUrl}/chat?open=${chat.chat_id}`;
-        
-        // --- FIX STEP 3: Add 'name' to the "newMatch" notifications ---
-        
-        // Notification for the user who was liked (sender is the logged-in user)
-        await Notification.create({ 
-            user_id: likedUserId, 
-            sender_id: loggedInUserId,
-            message_key: 'notifications.newMatch',
-            message_params: { name: loggedInUser.fullname, chatLink } // <-- ADDED NAME
-        });
-        
-        // Notification for the user who initiated the like (sender is the liked user)
-        const loggedInUserMatchNotification = await Notification.create({
-            user_id: loggedInUserId,
-            sender_id: likedUserId,
-            message_key: 'notifications.newMatch',
-            message_params: { name: likedUser.fullname, chatLink } // <-- ADDED NAME
-        });
-        
-        const notificationWithDetails = await Notification.findByPk(loggedInUserMatchNotification.notification_id, {
-            include: [{
-                model: User,
-                as: 'sender',
-                attributes: ['user_id', 'fullname'],
-                include: [
-                    { model: Artist, as: 'artistProfile', attributes: ['profile_picture'], required: false },
-                    { model: Employer, as: 'employerProfile', attributes: ['profile_picture'], required: false }
-                ]
-            }]
-        });
-
-        const newNotificationForClient = notificationWithDetails ? {
-            notification_id: notificationWithDetails.notification_id,
-            message_key: notificationWithDetails.message_key,
-            message_params: notificationWithDetails.message_params,
-            createdAt: notificationWithDetails.createdAt,
-            read_status: notificationWithDetails.read_status,
-            sender: {
-                user_id: notificationWithDetails.sender?.user_id,
-                fullname: notificationWithDetails.sender?.fullname,
-                profile_picture: notificationWithDetails.sender?.artistProfile?.profile_picture || notificationWithDetails.sender?.employerProfile?.profile_picture || null
-            }
-        } : null;
-
-        res.status(201).json({
-            message: 'Like added (mutual match detected!).',
-            liked: true,
-            chat_id: chat.chat_id,
-            newNotification: newNotificationForClient
-        });
-
-    } catch (error) {
-        console.error('Error toggling like:', error);
-        res.status(500).json({ error: 'Failed to toggle like' });
+      };
+  
+      res.status(201).json({
+        message         : 'Like added (mutual match!).',
+        liked           : true,
+        chat_id         : chat.chat_id,
+        newNotification : newNotificationForClient
+      });
+    } catch (err) {
+      console.error('❌ Error toggling like', err);
+      res.status(500).json({ error: 'Failed to toggle like' });
     }
-};
-
+  };  
 
 // ─────────────────────────────────────────────────────────────
 // CHECK IF THE CURRENT USER LIKED A SPECIFIC USER

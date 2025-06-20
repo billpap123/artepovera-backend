@@ -78,6 +78,8 @@ io.on('connection', (socket) => {
 
   socket.on('add_user', (userId: number) => {
     onlineUsers.set(userId, socket.id);
+    socket.join(`user-${userId}`);          // ⭐ πρόσθεσέ το → μπαίνει σε προσωπικό room
+
     console.log(`user ${userId} ↔ socket ${socket.id}`);
   });
 
