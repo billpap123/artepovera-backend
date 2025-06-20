@@ -63,12 +63,12 @@ app.use(express.urlencoded({ extended: true }));
 const server = http.createServer(app);
 
 const io = new Server(server, {
-  transports: ['websocket'],       // προτιμά καθαρό WebSocket
-  cors: {
-    origin : allowedOrigins,
-    methods: ['GET', 'POST']       // ΔΕΝ βάζουμε credentials:true
-  }
+  transports: ['websocket'],
+  pingInterval: 25_000,     // default 25 s → maybe 40 s
+  pingTimeout : 20_000,
+  cors: { origin: allowedOrigins, methods: ['GET','POST'] }
 });
+
 
 /* ------------------------ online users map ------------------------------- */
 const onlineUsers = new Map<number, string>();

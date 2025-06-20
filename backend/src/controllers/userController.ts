@@ -48,130 +48,121 @@ const buildUserResponse = async (userInstance: User) => {
 // Like/Unlike a user and create notifications
 // ─────────────────────────────────────────────────────────────
 export const toggleLike = async (req: CustomRequest, res: Response): Promise<void> => {
-    const loggedInUserId = req.user?.id;
-    const likedUserId    = Number(req.params.userId);
+    /* ------------------------------------------------------------------ */
+    /* 0. Guards                                                          */
+    /* ------------------------------------------------------------------ */
+    const uid   = req.user?.id;
+    const other = Number(req.params.userId);
   
-    /* ---------------- basic guards ---------------- */
-    if (!loggedInUserId || !likedUserId || isNaN(likedUserId) || loggedInUserId === likedUserId) {
+    if (!uid || !other || isNaN(other) || uid === other) {
       res.status(400).json({ error: 'Invalid request.' });
       return;
     }
   
     try {
-      /* ---------- fetch users (names) ---------- */
-      const [loggedInUser, likedUser] = await Promise.all([
-        User.findByPk(loggedInUserId, { attributes: ['fullname'] }),
-        User.findByPk(likedUserId   , { attributes: ['fullname'] })
+      /* ---------------------------------------------------------------- */
+      /* 1. Fetch user records & any existing like IN PARALLEL            */
+      /* ---------------------------------------------------------------- */
+      const [me, them, existing] = await Promise.all([
+        User.findByPk(uid  , { attributes: ['fullname'] }),
+        User.findByPk(other, { attributes: ['fullname'] }),
+        Like.findOne({ where: { user_id: uid, liked_user_id: other } }),
       ]);
-      if (!loggedInUser || !likedUser) {
+  
+      if (!me || !them) {
         res.status(404).json({ error: 'User not found.' });
         return;
       }
   
-      /* ---------- like / unlike ---------- */
-      const existingLike = await Like.findOne({
-        where: { user_id: loggedInUserId, liked_user_id: likedUserId }
-      });
-  
-      if (existingLike) {
-        await existingLike.destroy();
+      /* ---------------------------------------------------------------- */
+      /* 2. Unlike ?  -> destroy & exit                                   */
+      /* ---------------------------------------------------------------- */
+      if (existing) {
+        await existing.destroy();
         res.status(200).json({ message: 'Like removed', liked: false });
         return;
       }
   
-      await Like.create({ user_id: loggedInUserId, liked_user_id: likedUserId });
+      /* ---------------------------------------------------------------- */
+      /* 3. Create the like  –––> RESPOND EARLY                           */
+      /* ---------------------------------------------------------------- */
+      await Like.create({ user_id: uid, liked_user_id: other });
   
-      /* ---------- απλό like notification ---------- */
-      const newLikeNotif = await Notification.create({
-        user_id      : likedUserId,
-        sender_id    : loggedInUserId,
-        message_key  : 'notifications.newLike',
-        message_params: {
-          name       : loggedInUser.fullname,
-          profileLink: `/user-profile/${loggedInUserId}`
-        }
-      });
+      // optimistic UI: client gets success in ~80 ms
+      res.status(201).json({ message: 'Like added', liked: true });
   
-      /* ---------- live-push στον ληκτή ---------- */
-      pushNotification(req.io!, req.onlineUsers!, likedUserId, newLikeNotif.toJSON());
+      /* ---------------------------------------------------------------- */
+      /* 4. Heavy lifting (runs AFTER response is sent)                   */
+      /* ---------------------------------------------------------------- */
+      (async () => {
+        /* ---- simple like notification -------------------------------- */
+        const likeNotif = await Notification.create({
+          user_id      : other,
+          sender_id    : uid,
+          message_key  : 'notifications.newLike',
+          message_params: {
+            name       : me.fullname,
+            profileLink: `/user-profile/${uid}`,
+          },
+        });
+        pushNotification(req.io!, req.onlineUsers!, other, likeNotif.toJSON());
   
-      /* ---------- mutual like? ---------- */
-      const mutual = await Like.findOne({
-        where: { user_id: likedUserId, liked_user_id: loggedInUserId }
-      });
+        /* ---- mutual? -------------------------------------------------- */
+        const mutual = await Like.findOne({
+          where: { user_id: other, liked_user_id: uid },
+        });
+        if (!mutual) return;                       // nothing more to do
   
-      if (!mutual) {
-        res.status(201).json({ message: 'Like added', liked: true });
-        return;
-      }
+        /* ---- get / create chat --------------------------------------- */
+        const [u1, u2] = [uid, other].sort((a, b) => a - b);
+        const [chat]   = await Chat.findOrCreate({
+          where   : { user1_id: u1, user2_id: u2 },
+          defaults: { user1_id: u1, user2_id: u2 },
+        });
+        const frontendURL = process.env.FRONTEND_URL
+                         || 'https://artepovera2.vercel.app';
+        const chatLink = `${frontendURL}/chat?open=${chat.chat_id}`;
   
-      /* ---------- create / fetch chat ---------- */
-      const [u1, u2] = [loggedInUserId, likedUserId].sort((a, b) => a - b);
-      const [chat]   = await Chat.findOrCreate({
-        where   : { user1_id: u1, user2_id: u2 },
-        defaults: { user1_id: u1, user2_id: u2 }
-      });
+        /* ---- two “match” notifications ------------------------------- */
+        const [notifToOther, notifToMe] = await Promise.all([
+          Notification.create({
+            user_id      : other,
+            sender_id    : uid,
+            message_key  : 'notifications.newMatch',
+            message_params: { name: me.fullname,  chatLink },
+          }),
+          Notification.create({
+            user_id      : uid,
+            sender_id    : other,
+            message_key  : 'notifications.newMatch',
+            message_params: { name: them.fullname, chatLink },
+          }),
+        ]);
   
-      const frontendURL = process.env.FRONTEND_URL || 'https://artepovera2.vercel.app';
-      const chatLink    = `${frontendURL}/chat?open=${chat.chat_id}`;
+        pushNotification(req.io!, req.onlineUsers!, other, notifToOther.toJSON());
+        pushNotification(req.io!, req.onlineUsers!, uid  , notifToMe  .toJSON());
   
-      /* ---------- match notifications (δύο) ---------- */
-      const notifForLiked = await Notification.create({
-        user_id      : likedUserId,
-        sender_id    : loggedInUserId,
-        message_key  : 'notifications.newMatch',
-        message_params: { name: loggedInUser.fullname, chatLink }
-      });
-      const notifForLogged = await Notification.create({
-        user_id      : loggedInUserId,
-        sender_id    : likedUserId,
-        message_key  : 'notifications.newMatch',
-        message_params: { name: likedUser.fullname, chatLink }
-      });
-  
-      /* ---------- live-push και στους δύο ---------- */
-      pushNotification(req.io!, req.onlineUsers!, likedUserId   , notifForLiked.toJSON());
-      pushNotification(req.io!, req.onlineUsers!, loggedInUserId, notifForLogged.toJSON());
-  
-      /* ---------- enrich μία απ’ τις δύο για να τη στείλω πίσω ---------- */
-      const notifDetails = await Notification.findByPk(notifForLogged.notification_id, {
-        include: [{
-          model      : User,
-          as         : 'sender',
-          attributes : ['user_id', 'fullname'],
-          include    : [
-            { model: Artist , as: 'artistProfile'  , attributes: ['profile_picture'], required: false },
-            { model: Employer, as: 'employerProfile', attributes: ['profile_picture'], required: false }
-          ]
-        }]
-      });
-  
-      const newNotificationForClient = notifDetails && {
-        notification_id: notifDetails.notification_id,
-        message_key    : notifDetails.message_key,
-        message_params : notifDetails.message_params,
-        createdAt      : notifDetails.createdAt,
-        read_status    : notifDetails.read_status,
-        sender         : {
-          user_id        : notifDetails.sender?.user_id,
-          fullname       : notifDetails.sender?.fullname,
-          profile_picture: notifDetails.sender?.artistProfile?.profile_picture
-                        || notifDetails.sender?.employerProfile?.profile_picture
-                        || null
-        }
-      };
-  
-      res.status(201).json({
-        message         : 'Like added (mutual match!).',
-        liked           : true,
-        chat_id         : chat.chat_id,
-        newNotification : newNotificationForClient
-      });
+        /* ---- build enriched notif for *my* side, push via socket ----- */
+        const fullNotif = {
+          notification_id: notifToMe.notification_id,
+          message_key    : notifToMe.message_key,
+          message_params : notifToMe.message_params,
+          createdAt      : notifToMe.createdAt,
+          read_status    : notifToMe.read_status,
+          sender         : {
+            user_id        : other,
+            fullname       : them.fullname,
+            profile_picture: null,     // fill from Artist/Employer if you need it
+          },
+        };
+        pushNotification(req.io!, req.onlineUsers!, uid, fullNotif);
+      })();
     } catch (err) {
-      console.error('❌ Error toggling like', err);
+      console.error('❌ Error toggling like:', err);
       res.status(500).json({ error: 'Failed to toggle like' });
     }
-  };  
+  };
+  
 
 // ─────────────────────────────────────────────────────────────
 // CHECK IF THE CURRENT USER LIKED A SPECIFIC USER
