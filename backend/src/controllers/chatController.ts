@@ -8,6 +8,7 @@ import Artist from '../models/Artist';
 import Employer from '../models/Employer';
 import { CustomRequest } from '../middleware/authMiddleware';
 import { Server } from 'socket.io';             // ⭐  ΝΕΟ import
+import sequelize from '../config/db';   // ← ADD THIS LINE
 
 /**
  * @description Creates a chat between the logged-in user and a specified receiver.
@@ -51,63 +52,68 @@ export const createChat = async (req: CustomRequest, res: Response): Promise<voi
  * @route POST /api/chats/send
  * @body { chat_id: number, message: string }
  */
-export const sendMessage = async (req: CustomRequest, res: Response): Promise<void> => {
-  const senderId              = req.user?.id;
-  const { chat_id, message }  = req.body;
+export const sendMessage = async (req: CustomRequest, res: Response) => {
+  const senderId                = req.user!.id;                 // we’re in a protected route
+  const { chat_id, message }    = req.body;
 
-  /* --------------------------- basic validation --------------------------- */
-  if (!chat_id || !senderId || !message?.trim()) {
-    res.status(400).json({ message: 'Missing chat_id, authenticated sender_id, or message.' });
-    return;
+  /* ---------- guardrails ---------- */
+  if (!chat_id || !message?.trim()) {
+    return void res.status(400).json({ message: 'chat_id and message required.' });
   }
 
+  const trx = await sequelize.transaction();
   try {
-    const chat = await Chat.findByPk(chat_id);
-    if (!chat) {
-      res.status(404).json({ message: 'Chat not found.' });
-      return;
-    }
+    /* ---------- verify chat & authorship (single SELECT … FOR UPDATE) ---------- */
+    const chat = await Chat.findOne({
+      where: { chat_id },
+      attributes: ['chat_id', 'user1_id', 'user2_id'],
+      lock: trx.LOCK.UPDATE,              // prevents race conditions with updatedAt
+      transaction: trx,
+    });
+    if (!chat)       return void res.status(404).json({ message: 'Chat not found.' });
     if (chat.user1_id !== senderId && chat.user2_id !== senderId) {
-      res.status(403).json({ message: 'Forbidden: You are not a participant in this chat.' });
-      return;
+      return void res.status(403).json({ message: 'Not a participant.' });
     }
 
     const receiverId = chat.user1_id === senderId ? chat.user2_id : chat.user1_id;
 
-    /* ------------------------------- DB write ------------------------------ */
-    const newMessage = await Message.create({
-      chat_id   : chat.chat_id,
-      sender_id : senderId,
-      receiver_id: receiverId,
-      message   : message.trim(),
+    /* ---------- insert message & touch chat.updatedAt (same connection) ---------- */
+    const newMessage = await Message.create(
+      { chat_id, sender_id: senderId, receiver_id: receiverId, message: message.trim() },
+      { transaction: trx }
+    );
+    await chat.update({ updatedAt: new Date() }, { transaction: trx });
+
+    await trx.commit();                       // ✅ done – DB is consistent
+
+    /* ---------- reply to HTTP *immediately* ---------- */
+    res.status(201).json({ data: newMessage });
+
+    /* ---------- fire-and-forget realtime broadcast ---------- */
+    process.nextTick(async () => {
+      const io            = req.io as Server;
+      const onlineUsers   = req.onlineUsers;
+      const room          = String(chat.chat_id);
+      const payload       = newMessage.toJSON();
+
+      io.to(room).volatile.emit('new_message', payload);        // .volatile ⇒ no ack wait
+
+      const receiverSocket = onlineUsers?.get(receiverId);
+      if (receiverSocket) {
+        const socketsInRoom = await io.in(room).allSockets();
+        if (!socketsInRoom.has(receiverSocket)) {
+          io.to(receiverSocket).volatile.emit('new_message', payload);
+        }
+      }
     });
 
-    await chat.update({ updatedAt: new Date() });      // refresh για sort
-
-    /* ------------------------------ Socket.IO ----------------------------- */
-    const io          = req.io as Server;
-    const onlineUsers = req.onlineUsers;
-    const roomName    = String(chat.chat_id);
-    const payload     = newMessage.toJSON();
-
-    // ① broadcast στο room (όλοι όσοι βλέπουν το chat)
-    io.to(roomName).emit('new_message', payload);
-
-    // ② direct push ΜΟΝΟ αν ο παραλήπτης δεν είναι ήδη στο room
-    const receiverSocket = onlineUsers?.get(receiverId);
-    if (receiverSocket) {
-      const socketsInRoom = await io.in(roomName).allSockets(); // Set<string>
-      if (!socketsInRoom.has(receiverSocket)) {
-        io.to(receiverSocket).emit('new_message', payload);
-      }
-    }
-
-    res.status(201).json({ message: 'Message sent successfully', data: newMessage });
-  } catch (error) {
-    console.error('❌ Error in sendMessage:', error);
+  } catch (err) {
+    await trx.rollback();
+    console.error('❌  sendMessage failed:', err);
     res.status(500).json({ message: 'Internal server error.' });
   }
 };
+
 
   
 
